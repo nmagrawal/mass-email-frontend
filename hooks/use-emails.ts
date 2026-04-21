@@ -10,8 +10,11 @@ const fetcher = async (url: string) => {
 }
 
 export function useEmails(folder: string = "inbox") {
+  // Don't fetch for mass-campaigns as it's not a real email folder
+  const shouldFetch = folder !== "mass-campaigns"
+  
   const { data, error, isLoading, mutate } = useSWR<Email[]>(
-    `/api/emails?folder=${folder}`,
+    shouldFetch ? `/api/emails?folder=${folder}` : null,
     fetcher
   )
 

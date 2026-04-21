@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import { Send, Plus, Trash2, Upload, AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import type { MassCampaignContact } from "@/lib/types/email"
+import { ImagePicker } from "./image-picker"
 
 interface MassCampaignProps {
   onSend: (data: {
@@ -142,6 +143,11 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
   const validContactCount = contacts.filter(
     (c) => c.email.trim() && c.first_name.trim()
   ).length
+
+  const handleInsertImage = useCallback((imageUrl: string) => {
+    const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`
+    setHtmlTemplate((prev) => prev + "\n" + imageHtml)
+  }, [])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

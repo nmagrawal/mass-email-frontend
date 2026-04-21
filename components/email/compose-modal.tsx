@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { X, Minus, Maximize2, Minimize2, Send, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ImagePicker } from "./image-picker"
 
 interface ComposeModalProps {
   isOpen: boolean
@@ -87,6 +88,12 @@ export function ComposeModal({
     setSubject("")
     setBody("")
     onClose()
+  }
+
+  const handleInsertImage = (imageUrl: string) => {
+    // Insert image HTML at the end of the body
+    const imageHtml = `<img src="${imageUrl}" alt="Embedded image" style="max-width: 100%; height: auto;" />`
+    setBody((prev) => prev + (prev ? "\n\n" : "") + imageHtml)
   }
 
   if (!isOpen) return null
@@ -226,6 +233,7 @@ export function ComposeModal({
                   </>
                 )}
               </button>
+              <ImagePicker onInsert={handleInsertImage} />
             </div>
           </form>
         )}

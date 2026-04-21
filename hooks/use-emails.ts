@@ -1,7 +1,13 @@
 import useSWR from "swr"
-import type { Email, Contact } from "@/lib/types/email"
+import type { Email } from "@/lib/types/email"
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error("Failed to fetch")
+  }
+  return res.json()
+}
 
 export function useEmails(folder: string = "inbox") {
   const { data, error, isLoading, mutate } = useSWR<Email[]>(
@@ -10,7 +16,7 @@ export function useEmails(folder: string = "inbox") {
   )
 
   return {
-    emails: data || [],
+    emails: Array.isArray(data) ? data : [],
     isLoading,
     isError: error,
     mutate,
@@ -23,7 +29,7 @@ export function useEmail(id: string | null) {
     fetcher
   )
 
-  return {
+return {
     email: data,
     isLoading,
     isError: error,
@@ -31,16 +37,4 @@ export function useEmail(id: string | null) {
   }
 }
 
-export function useContacts() {
-  const { data, error, isLoading, mutate } = useSWR<Contact[]>(
-    "/api/contacts",
-    fetcher
-  )
 
-  return {
-    contacts: data || [],
-    isLoading,
-    isError: error,
-    mutate,
-  }
-}

@@ -4,9 +4,10 @@ import { useState, useCallback, useMemo } from "react"
 import { Sidebar } from "./sidebar"
 import { EmailList } from "./email-list"
 import { EmailDetail } from "./email-detail"
-import { ContactsList } from "./contacts-list"
+import { MassCampaign } from "./mass-campaign"
 import { ComposeModal } from "./compose-modal"
-import { useEmails, useEmail, useContacts } from "@/hooks/use-emails"
+import { useEmails, useEmail } from "@/hooks/use-emails"
+import type { MassCampaignContact } from "@/lib/types/email"
 import { Menu, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Email } from "@/lib/types/email"
@@ -25,7 +26,6 @@ export function EmailClient() {
   // Data fetching
   const { emails, isLoading: emailsLoading, mutate: mutateEmails } = useEmails(currentFolder)
   const { email: selectedEmail, isLoading: emailLoading } = useEmail(selectedEmailId)
-  const { contacts, isLoading: contactsLoading, mutate: mutateContacts } = useContacts()
 
   // Calculate unread count for inbox
   const unreadCount = useMemo(() => {
@@ -52,11 +52,27 @@ export function EmailClient() {
     setShowCompose(true)
   }, [])
 
-  const handleComposeToContact = useCallback((email: string) => {
-    setComposeInitial({ to: email })
-    setShowCompose(true)
-    setCurrentFolder("inbox") // Switch to inbox view
-  }, [])
+  const handleSendMassCampaign = useCallback(
+    async (data: {
+      subject: string
+      html_template: string
+      contacts: MassCampaignContact[]
+    }) => {
+      const response = await fetch("/api/mass-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to send mass campaign")
+      }
+
+      return response.json()
+    },
+    []
+  )
 
   const handleReply = useCallback((email: Email) => {
     setComposeInitial({
@@ -100,20 +116,6 @@ export function EmailClient() {
     }
   }, [mutateEmails])
 
-  const handleAddContact = useCallback(async (contact: { email: string; name?: string }) => {
-    const response = await fetch("/api/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(contact),
-    })
-
-    if (!response.ok) {
-      throw new Error("Failed to add contact")
-    }
-
-    mutateContacts()
-  }, [mutateContacts])
-
   const handleRefresh = useCallback(() => {
     mutateEmails()
   }, [mutateEmails])
@@ -145,87 +147,98 @@ export function EmailClient() {
 
       {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
-        {/* Email list / Contacts */}
-        <div
-          className={cn(
-            "flex w-full flex-col border-r border-border lg:w-80 xl:w-96",
-            selectedEmailId && currentFolder !== "contacts" ? "hidden lg:flex" : "flex"
-          )}
-        >
-          {/* Mobile header */}
-          <div className="flex items-center gap-2 border-b border-border p-3 lg:hidden">
-            <button
-              onClick={() => setShowMobileSidebar(true)}
-              className="rounded-lg p-2 transition-colors hover:bg-accent"
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <h2 className="flex-1 text-lg font-semibold capitalize text-foreground">
-              {currentFolder}
-            </h2>
-            <button
-              onClick={handleRefresh}
-              className="rounded-lg p-2 transition-colors hover:bg-accent"
-              aria-label="Refresh"
-            >
-              <RefreshCw className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* Desktop header */}
-          <div className="hidden items-center justify-between border-b border-border p-4 lg:flex">
-            <h2 className="text-lg font-semibold capitalize text-foreground">
-              {currentFolder}
-            </h2>
-            <button
-              onClick={handleRefresh}
-              className="rounded-lg p-2 transition-colors hover:bg-accent"
-              aria-label="Refresh"
-            >
-              <RefreshCw className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-auto">
-            {currentFolder === "contacts" ? (
-              <ContactsList
-                contacts={contacts}
-                isLoading={contactsLoading}
-                onAddContact={handleAddContact}
-                onComposeToContact={handleComposeToContact}
-              />
-            ) : (
-              <EmailList
-                emails={emails}
-                selectedId={selectedEmailId}
-                onSelect={handleEmailSelect}
-                isLoading={emailsLoading}
-                folder={currentFolder}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Email detail view */}
-        {currentFolder !== "contacts" && (
-          <div
-            className={cn(
-              "flex-1 overflow-hidden",
-              !selectedEmailId ? "hidden lg:flex" : "flex"
-            )}
-          >
-            <div className="flex h-full w-full flex-col">
-              <EmailDetail
-                email={selectedEmail}
-                isLoading={emailLoading}
-                onBack={handleBack}
-                onDelete={handleDeleteEmail}
-                onReply={handleReply}
-              />
+        {/* Mass Campaigns - Full width view */}
+        {currentFolder === "mass-campaigns" ? (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Mobile header */}
+            <div className="flex items-center gap-2 border-b border-border p-3 lg:hidden">
+              <button
+                onClick={() => setShowMobileSidebar(true)}
+                className="rounded-lg p-2 transition-colors hover:bg-accent"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <h2 className="flex-1 text-lg font-semibold text-foreground">
+                Mass Campaigns
+              </h2>
             </div>
+            <MassCampaign onSend={handleSendMassCampaign} />
           </div>
+        ) : (
+          <>
+            {/* Email list */}
+            <div
+              className={cn(
+                "flex w-full flex-col border-r border-border lg:w-80 xl:w-96",
+                selectedEmailId ? "hidden lg:flex" : "flex"
+              )}
+            >
+              {/* Mobile header */}
+              <div className="flex items-center gap-2 border-b border-border p-3 lg:hidden">
+                <button
+                  onClick={() => setShowMobileSidebar(true)}
+                  className="rounded-lg p-2 transition-colors hover:bg-accent"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <h2 className="flex-1 text-lg font-semibold capitalize text-foreground">
+                  {currentFolder}
+                </h2>
+                <button
+                  onClick={handleRefresh}
+                  className="rounded-lg p-2 transition-colors hover:bg-accent"
+                  aria-label="Refresh"
+                >
+                  <RefreshCw className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Desktop header */}
+              <div className="hidden items-center justify-between border-b border-border p-4 lg:flex">
+                <h2 className="text-lg font-semibold capitalize text-foreground">
+                  {currentFolder}
+                </h2>
+                <button
+                  onClick={handleRefresh}
+                  className="rounded-lg p-2 transition-colors hover:bg-accent"
+                  aria-label="Refresh"
+                >
+                  <RefreshCw className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Email list content */}
+              <div className="flex-1 overflow-auto">
+                <EmailList
+                  emails={emails}
+                  selectedId={selectedEmailId}
+                  onSelect={handleEmailSelect}
+                  isLoading={emailsLoading}
+                  folder={currentFolder}
+                />
+              </div>
+            </div>
+
+            {/* Email detail view */}
+            <div
+              className={cn(
+                "flex-1 overflow-hidden",
+                !selectedEmailId ? "hidden lg:flex" : "flex"
+              )}
+            >
+              <div className="flex h-full w-full flex-col">
+                <EmailDetail
+                  email={selectedEmail}
+                  isLoading={emailLoading}
+                  onBack={handleBack}
+                  onDelete={handleDeleteEmail}
+                  onReply={handleReply}
+                />
+              </div>
+            </div>
+          </>
         )}
       </div>
 

@@ -30,3 +30,14 @@ export interface ApiResponse<T> {
   data: T
   message?: string
 }
+
+export interface MassCampaignContact {
+  email: string
+  first_name: string
+}
+
+export interface MassCampaignPayload {
+  subject: string
+  html_template: string
+  contacts: MassCampaignContact[]
+}

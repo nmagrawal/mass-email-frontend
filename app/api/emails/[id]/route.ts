@@ -12,7 +12,7 @@ export async function GET(
   try {
     const response = await fetch(`${API_URL}/emails/${id}`, {
       headers: {
-        "X-API-Key": API_KEY,
+        "x-api-key": API_KEY,
         "Content-Type": "application/json",
       },
     })
@@ -45,7 +45,7 @@ export async function DELETE(
     const response = await fetch(`${API_URL}/emails/${id}`, {
       method: "DELETE",
       headers: {
-        "X-API-Key": API_KEY,
+        "x-api-key": API_KEY,
         "Content-Type": "application/json",
       },
     })

@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   try {
     const response = await fetch(`${API_URL}/emails?folder=${folder}`, {
       headers: {
-        "X-API-Key": API_KEY,
+        "x-api-key": API_KEY,
         "Content-Type": "application/json",
       },
     })

@@ -1,0 +1,66 @@
+import { NextRequest, NextResponse } from "next/server"
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_KEY = process.env.FRONTEND_API_KEY || ""
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+
+    // Validate required fields
+    if (!body.subject || !body.html_template || !body.contacts) {
+      return NextResponse.json(
+        { error: "Missing required fields: subject, html_template, contacts" },
+        { status: 400 }
+      )
+    }
+
+    // Validate contacts array
+    if (!Array.isArray(body.contacts) || body.contacts.length === 0) {
+      return NextResponse.json(
+        { error: "Contacts must be a non-empty array" },
+        { status: 400 }
+      )
+    }
+
+    // Validate each contact has email and first_name
+    for (const contact of body.contacts) {
+      if (!contact.email || !contact.first_name) {
+        return NextResponse.json(
+          { error: "Each contact must have email and first_name" },
+          { status: 400 }
+        )
+      }
+    }
+
+    const response = await fetch(`${API_URL}/api/mass-send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": API_KEY,
+      },
+      body: JSON.stringify({
+        subject: body.subject,
+        html_template: body.html_template,
+        contacts: body.contacts,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: "Failed to send mass campaign" }))
+      return NextResponse.json(
+        { error: error.message || error.detail || "Failed to send mass campaign" },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error("Mass send error:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}

@@ -7,10 +7,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    const response = await fetch(`${API_URL}/emails/send`, {
+    const response = await fetch(`${API_URL}/api/send`, {
       method: "POST",
       headers: {
-        "X-API-Key": API_KEY,
+        "x-api-key": API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),

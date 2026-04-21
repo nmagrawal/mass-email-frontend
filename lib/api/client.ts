@@ -7,7 +7,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": process.env.FRONTEND_API_KEY || "",
+      "x-api-key": process.env.FRONTEND_API_KEY || "",
       ...options.headers,
     },
   })

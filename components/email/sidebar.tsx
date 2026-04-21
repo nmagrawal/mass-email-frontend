@@ -1,6 +1,6 @@
 "use client"
 
-import { Inbox, Send, Users, PenSquare, Mail } from "lucide-react"
+import { Inbox, Send, Megaphone, PenSquare, Mail } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SidebarProps {
@@ -13,7 +13,7 @@ interface SidebarProps {
 const navItems = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "sent", label: "Sent", icon: Send },
-  { id: "contacts", label: "Contacts", icon: Users },
+  { id: "mass-campaigns", label: "Mass Campaigns", icon: Megaphone },
 ]
 
 export function Sidebar({

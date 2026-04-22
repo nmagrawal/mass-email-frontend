@@ -11,6 +11,7 @@ import type { MassCampaignContact } from "@/lib/types/email";
 import { Menu, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Email } from "@/lib/types/email";
+import { VoterListPanel } from "./voter-list-panel";
 
 export function EmailClient() {
   const [currentFolder, setCurrentFolder] = useState("inbox");
@@ -137,6 +138,11 @@ export function EmailClient() {
     mutateEmails();
   }, [mutateEmails]);
 
+  // Add contacts from voter panel to mass campaign
+  const [massContacts, setMassContacts] = useState<MassCampaignContact[]>([
+    { email: "", first_name: "" },
+  ]);
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* Mobile sidebar overlay */}
@@ -166,22 +172,45 @@ export function EmailClient() {
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Mass Campaigns - Full width view */}
         {currentFolder === "mass-campaigns" ? (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Mobile header */}
-            <div className="flex items-center gap-2 border-b border-border p-3 lg:hidden">
-              <button
-                onClick={() => setShowMobileSidebar(true)}
-                className="rounded-lg p-2 transition-colors hover:bg-accent"
-                aria-label="Open menu"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-              <h2 className="flex-1 text-lg font-semibold text-foreground">
-                Mass Campaigns
-              </h2>
+          <>
+            <div className="flex flex-1 flex-col overflow-hidden">
+              {/* Mobile header */}
+              <div className="flex items-center gap-2 border-b border-border p-3 lg:hidden">
+                <button
+                  onClick={() => setShowMobileSidebar(true)}
+                  className="rounded-lg p-2 transition-colors hover:bg-accent"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <h2 className="flex-1 text-lg font-semibold text-foreground">
+                  Mass Campaigns
+                </h2>
+              </div>
+              <MassCampaign
+                onSend={handleSendMassCampaign}
+                initialContacts={massContacts}
+                setContacts={setMassContacts}
+              />
             </div>
-            <MassCampaign onSend={handleSendMassCampaign} />
-          </div>
+            {/* Voter list panel - right column for mass campaign */}
+            <div className="hidden xl:flex w-[400px] border-l border-border bg-background">
+              <VoterListPanel
+                onAddToEmailList={(contacts) => {
+                  setMassContacts((prev) => {
+                    // Avoid duplicates by email
+                    const emails = new Set(prev.map((c) => c.email));
+                    return [
+                      ...prev.filter((c) => c.email),
+                      ...contacts.filter(
+                        (c) => c.email && !emails.has(c.email),
+                      ),
+                    ];
+                  });
+                }}
+              />
+            </div>
+          </>
         ) : (
           <>
             {/* Email list */}
@@ -254,6 +283,10 @@ export function EmailClient() {
                   onReply={handleReply}
                 />
               </div>
+            </div>
+            {/* Voter list panel - right column */}
+            <div className="hidden xl:flex w-[400px] border-l border-border bg-background">
+              <VoterListPanel />
             </div>
           </>
         )}

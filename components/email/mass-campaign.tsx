@@ -20,17 +20,26 @@ export interface MassCampaignProps {
     html_template: string;
     contacts: MassCampaignContact[];
   }) => Promise<void>;
+  initialContacts?: MassCampaignContact[];
+  setContacts?: (contacts: MassCampaignContact[]) => void;
 }
 
-export function MassCampaign({ onSend }: MassCampaignProps) {
+export function MassCampaign({
+  onSend,
+  initialContacts,
+  setContacts,
+}: MassCampaignProps) {
   const [fromEmail, setFromEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [htmlTemplate, setHtmlTemplate] = useState(
     `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
   );
-  const [contacts, setContacts] = useState<MassCampaignContact[]>([
-    { email: "", first_name: "" },
-  ]);
+  // Use controlled contacts from parent
+  const contacts =
+    initialContacts && initialContacts.length > 0
+      ? initialContacts
+      : [{ email: "", first_name: "" }];
+  const _setContacts = setContacts || (() => {});
   const [bulkInput, setBulkInput] = useState("");
   const [showBulkInput, setShowBulkInput] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -50,9 +59,9 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     const cachedContacts = localStorage.getItem("mass_contacts");
     if (cachedContacts) {
       try {
-        setContacts(JSON.parse(cachedContacts));
+        setContacts?.(JSON.parse(cachedContacts));
       } catch {
-        setContacts([{ email: "", first_name: "" }]);
+        setContacts?.([{ email: "", first_name: "" }]);
       }
     }
     setBulkInput(localStorage.getItem("mass_bulkInput") || "");
@@ -89,53 +98,48 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
   }, [showBulkInput]);
 
   const addContact = useCallback(() => {
-    setContacts((prev) => [...prev, { email: "", first_name: "" }]);
-  }, []);
+    _setContacts([...contacts, { email: "", first_name: "" }]);
+  }, [contacts, _setContacts]);
 
-  const removeContact = useCallback((index: number) => {
-    setContacts((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const removeContact = useCallback(
+    (index: number) => {
+      _setContacts(contacts.filter((_, i) => i !== index));
+    },
+    [contacts, _setContacts],
+  );
 
   const updateContact = useCallback(
     (index: number, field: keyof MassCampaignContact, value: string) => {
-      setContacts((prev) =>
-        prev.map((contact, i) =>
+      _setContacts(
+        contacts.map((contact, i) =>
           i === index ? { ...contact, [field]: value } : contact,
         ),
       );
     },
-    [],
+    [contacts, _setContacts],
   );
 
   const parseBulkInput = useCallback(() => {
     const lines = bulkInput.trim().split("\n");
     const newContacts: MassCampaignContact[] = [];
-
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) continue;
-
-      // Support formats: "email,name" or "email, name" or "name <email>"
       let email = "";
       let first_name = "";
-
       if (trimmedLine.includes("<") && trimmedLine.includes(">")) {
-        // Format: "Name <email@example.com>"
         const match = trimmedLine.match(/^(.+?)\s*<(.+?)>$/);
         if (match) {
           first_name = match[1].trim();
           email = match[2].trim();
         }
       } else if (trimmedLine.includes(",")) {
-        // Format: "email,name" or "email, name"
         const parts = trimmedLine.split(",");
         email = parts[0].trim();
         first_name = parts[1]?.trim() || "";
       } else {
-        // Just an email
         email = trimmedLine;
       }
-
       if (email && email.includes("@")) {
         newContacts.push({
           email,
@@ -143,9 +147,8 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
         });
       }
     }
-
     if (newContacts.length > 0) {
-      setContacts(newContacts);
+      _setContacts(newContacts);
       setBulkInput("");
       setShowBulkInput(false);
       setSuccess(`Imported ${newContacts.length} contacts`);
@@ -156,7 +159,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
       );
       setTimeout(() => setError(null), 5000);
     }
-  }, [bulkInput]);
+  }, [bulkInput, _setContacts]);
 
   const validContactCount = contacts.filter(
     (c) => c.email.trim() && c.first_name.trim(),
@@ -226,7 +229,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
           return;
         }
         if (importedContacts.length > 0) {
-          setContacts(importedContacts);
+          _setContacts(importedContacts);
           setSuccess(`Imported ${importedContacts.length} contacts from file`);
           setTimeout(() => setSuccess(null), 3000);
         } else {
@@ -238,7 +241,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
         setTimeout(() => setError(null), 5000);
       }
     },
-    [],
+    [contacts, _setContacts],
   );
 
   const handleSubmit = useCallback(
@@ -288,7 +291,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
         setFromEmail("");
         setSubject("");
         setHtmlTemplate(`<h2>Hello {name},</h2>\n<p>Your message here...</p>`);
-        setContacts([{ email: "", first_name: "" }]);
+        _setContacts([{ email: "", first_name: "" }]);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to send campaign",
@@ -299,6 +302,8 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     },
     [subject, htmlTemplate, contacts, onSend],
   );
+
+  // No need for sync effects; contacts are always controlled
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -436,7 +441,9 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setContacts([{ email: "", first_name: "" }])}
+                    onClick={() =>
+                      setContacts?.([{ email: "", first_name: "" }])
+                    }
                     className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-destructive border border-destructive bg-transparent hover:bg-destructive/10"
                     title="Delete all recipients"
                   >
@@ -577,4 +584,3 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     </div>
   );
 }
-// Just an email

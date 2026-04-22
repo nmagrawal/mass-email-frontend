@@ -46,7 +46,10 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     return [{ email: "", first_name: "" }];
   });
   const [bulkInput, setBulkInput] = useState("");
-  const [showBulkInput, setShowBulkInput] = useState(false);
+  const [showBulkInput, setShowBulkInput] = useState(() => {
+    const cached = localStorage.getItem("mass_showBulkInput");
+    return cached === "true";
+  });
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -68,6 +71,12 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
   useEffect(() => {
     localStorage.setItem("mass_bulkInput", bulkInput);
   }, [bulkInput]);
+  useEffect(() => {
+    localStorage.setItem(
+      "mass_showBulkInput",
+      showBulkInput ? "true" : "false",
+    );
+  }, [showBulkInput]);
 
   const addContact = useCallback(() => {
     setContacts((prev) => [...prev, { email: "", first_name: "" }]);
@@ -402,7 +411,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowBulkInput(!showBulkInput)}
+                    onClick={() => setShowBulkInput((prev) => !prev)}
                     className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                   >
                     <Upload className="h-3 w-3" />

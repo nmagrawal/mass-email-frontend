@@ -20,13 +20,20 @@ export async function GET(req: NextRequest) {
       ? { "demographics.city": city, email: { $exists: true, $ne: "" } }
       : { email: { $exists: true, $ne: "" } };
 
+    // Pagination
+    const skip = parseInt(searchParams.get("skip") || "0", 10);
+    const limit = parseInt(searchParams.get("limit") || "100", 10);
+
     // Get all unique cities for filter dropdown
     const cities = await collection.distinct("demographics.city");
 
-    // Get voters for the city (or all if no city)
-    const voters = await collection.find(filter).limit(100).toArray();
+    // Get total count for pagination
+    const total = await collection.countDocuments(filter);
 
-    return NextResponse.json({ voters, cities });
+    // Get voters for the city (or all if no city)
+    const voters = await collection.find(filter).skip(skip).limit(limit).toArray();
+
+    return NextResponse.json({ voters, cities, total });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : err }, { status: 500 });
   } finally {

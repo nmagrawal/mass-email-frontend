@@ -23,16 +23,20 @@ export function VoterListPanel({
   const [selected, setSelected] = useState<{ [id: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState<number | null>(null);
+  const PAGE_SIZE = 100;
 
   useEffect(() => {
     const fetchCities = async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/voters");
+        const res = await fetch(`/api/voters?skip=0&limit=${PAGE_SIZE}`);
         const data = await res.json();
         setCities(data.cities || []);
         setVoters(data.voters || []);
+        setTotal(data.total || null);
         setSelected({});
       } catch (err) {
         setError("Failed to load voters");
@@ -44,18 +48,24 @@ export function VoterListPanel({
   }, []);
 
   useEffect(() => {
-    if (!selectedCity) return;
+    const skip = (page - 1) * PAGE_SIZE;
     setLoading(true);
     setError(null);
-    fetch(`/api/voters?city=${encodeURIComponent(selectedCity)}`)
+    let url = `/api/voters?skip=${skip}&limit=${PAGE_SIZE}`;
+    if (selectedCity) {
+      url += `&city=${encodeURIComponent(selectedCity)}`;
+    }
+    fetch(url)
       .then((res) => res.json())
       .then((data) => {
         setVoters(data.voters || []);
+        setTotal(data.total || null);
         setSelected({});
       })
       .catch(() => setError("Failed to load voters"))
       .finally(() => setLoading(false));
-  }, [selectedCity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity, page]);
 
   const allSelected =
     voters.length > 0 && voters.every((v) => selected[v._id.$oid || v._id]);
@@ -95,7 +105,10 @@ export function VoterListPanel({
         <select
           className="w-full rounded border p-2 mb-2"
           value={selectedCity}
-          onChange={(e) => setSelectedCity(e.target.value)}
+          onChange={(e) => {
+            setSelectedCity(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">All Cities</option>
           {cities.map((city) => (
@@ -114,6 +127,31 @@ export function VoterListPanel({
         >
           Add to Email List
         </button>
+        {/* Pagination Controls */}
+        <div className="flex items-center justify-between mt-4">
+          <button
+            className="px-3 py-1 rounded border disabled:opacity-50"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1 || loading}
+          >
+            Previous
+          </button>
+          <span>
+            Page {page}
+            {total !== null && <> of {Math.ceil(total / PAGE_SIZE)}</>}
+          </span>
+          <button
+            className="px-3 py-1 rounded border disabled:opacity-50"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={
+              loading ||
+              (total !== null && page >= Math.ceil(total / PAGE_SIZE)) ||
+              voters.length < PAGE_SIZE
+            }
+          >
+            Next
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto p-4">
         {loading ? (

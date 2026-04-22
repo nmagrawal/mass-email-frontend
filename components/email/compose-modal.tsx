@@ -29,21 +29,43 @@ export function ComposeModal({
   initialBody = "",
   initialFromEmail = "",
 }: ComposeModalProps) {
-  const [fromEmail, setFromEmail] = useState(initialFromEmail);
-  const [to, setTo] = useState(initialTo);
-  const [subject, setSubject] = useState(initialSubject);
-  const [body, setBody] = useState(initialBody);
+  const [fromEmail, setFromEmail] = useState(
+    () => localStorage.getItem("compose_fromEmail") || initialFromEmail,
+  );
+  const [to, setTo] = useState(
+    () => localStorage.getItem("compose_to") || initialTo,
+  );
+  const [subject, setSubject] = useState(
+    () => localStorage.getItem("compose_subject") || initialSubject,
+  );
+  const [body, setBody] = useState(
+    () => localStorage.getItem("compose_body") || initialBody,
+  );
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Persist fields to localStorage on change
+  useEffect(() => {
+    localStorage.setItem("compose_fromEmail", fromEmail);
+  }, [fromEmail]);
+  useEffect(() => {
+    localStorage.setItem("compose_to", to);
+  }, [to]);
+  useEffect(() => {
+    localStorage.setItem("compose_subject", subject);
+  }, [subject]);
+  useEffect(() => {
+    localStorage.setItem("compose_body", body);
+  }, [body]);
+
   // Reset form when initial values change (e.g., reply/forward)
   useEffect(() => {
-    setFromEmail(initialFromEmail);
-    setTo(initialTo);
-    setSubject(initialSubject);
-    setBody(initialBody);
+    setFromEmail(localStorage.getItem("compose_fromEmail") || initialFromEmail);
+    setTo(localStorage.getItem("compose_to") || initialTo);
+    setSubject(localStorage.getItem("compose_subject") || initialSubject);
+    setBody(localStorage.getItem("compose_body") || initialBody);
   }, [initialFromEmail, initialTo, initialSubject, initialBody]);
 
   // Reset state when modal opens
@@ -89,6 +111,10 @@ export function ComposeModal({
       setTo("");
       setSubject("");
       setBody("");
+      localStorage.removeItem("compose_fromEmail");
+      localStorage.removeItem("compose_to");
+      localStorage.removeItem("compose_subject");
+      localStorage.removeItem("compose_body");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send email");
@@ -105,6 +131,10 @@ export function ComposeModal({
     setTo("");
     setSubject("");
     setBody("");
+    localStorage.removeItem("compose_fromEmail");
+    localStorage.removeItem("compose_to");
+    localStorage.removeItem("compose_subject");
+    localStorage.removeItem("compose_body");
     onClose();
   };
 

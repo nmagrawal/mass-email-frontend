@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Send,
   Plus,
@@ -23,20 +23,51 @@ export interface MassCampaignProps {
 }
 
 export function MassCampaign({ onSend }: MassCampaignProps) {
-  const [fromEmail, setFromEmail] = useState("");
-  const [subject, setSubject] = useState("");
-  const [htmlTemplate, setHtmlTemplate] = useState(
-    `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
+  const [fromEmail, setFromEmail] = useState(
+    () => localStorage.getItem("mass_fromEmail") || "",
   );
-  const [contacts, setContacts] = useState<MassCampaignContact[]>([
-    { email: "", first_name: "" },
-  ]);
+  const [subject, setSubject] = useState(
+    () => localStorage.getItem("mass_subject") || "",
+  );
+  const [htmlTemplate, setHtmlTemplate] = useState(
+    () =>
+      localStorage.getItem("mass_htmlTemplate") ||
+      `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
+  );
+  const [contacts, setContacts] = useState<MassCampaignContact[]>(() => {
+    const cached = localStorage.getItem("mass_contacts");
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        return [{ email: "", first_name: "" }];
+      }
+    }
+    return [{ email: "", first_name: "" }];
+  });
   const [bulkInput, setBulkInput] = useState("");
   const [showBulkInput, setShowBulkInput] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [bulkFileName, setBulkFileName] = useState<string>("");
+
+  // Persist fields to localStorage on change
+  useEffect(() => {
+    localStorage.setItem("mass_fromEmail", fromEmail);
+  }, [fromEmail]);
+  useEffect(() => {
+    localStorage.setItem("mass_subject", subject);
+  }, [subject]);
+  useEffect(() => {
+    localStorage.setItem("mass_htmlTemplate", htmlTemplate);
+  }, [htmlTemplate]);
+  useEffect(() => {
+    localStorage.setItem("mass_contacts", JSON.stringify(contacts));
+  }, [contacts]);
+  useEffect(() => {
+    localStorage.setItem("mass_bulkInput", bulkInput);
+  }, [bulkInput]);
 
   const addContact = useCallback(() => {
     setContacts((prev) => [...prev, { email: "", first_name: "" }]);
@@ -384,6 +415,15 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                   >
                     <Plus className="h-3 w-3" />
                     Add Contact
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setContacts([{ email: "", first_name: "" }])}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-destructive border border-destructive bg-transparent hover:bg-destructive/10"
+                    title="Delete all recipients"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete All
                   </button>
                 </div>
               </div>

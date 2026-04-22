@@ -14,7 +14,7 @@ import type { Email } from "@/lib/types/email";
 import { VoterListPanel } from "./voter-list-panel";
 
 export function EmailClient() {
-  const [currentFolder, setCurrentFolder] = useState("inbox");
+  const [currentFolder, setCurrentFolder] = useState("mass-campaigns");
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showCompose, setShowCompose] = useState(false);

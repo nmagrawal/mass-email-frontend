@@ -24,6 +24,15 @@ export interface MassCampaignProps {
   setContacts?: (contacts: MassCampaignContact[]) => void;
 }
 
+// Add for template selection
+interface EmailTemplate {
+  _id?: string;
+  name: string;
+  subject: string;
+  body: string;
+  sequence?: number;
+}
+
 export function MassCampaign({
   onSend,
   initialContacts,
@@ -46,6 +55,82 @@ export function MassCampaign({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [bulkFileName, setBulkFileName] = useState<string>("");
+
+  // --- Email Template Selection State ---
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+
+  // --- Save as Template State ---
+  const [saveTemplateLoading, setSaveTemplateLoading] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(
+    null,
+  );
+  const [saveTemplateSuccess, setSaveTemplateSuccess] = useState<string | null>(
+    null,
+  );
+  const [templateName, setTemplateName] = useState("");
+
+  // Fetch templates on mount
+  useEffect(() => {
+    setTemplateLoading(true);
+    fetch("/api/emails/templates")
+      .then((res) => res.json())
+      .then((data) => {
+        setTemplates(data.templates || []);
+        setTemplateError(null);
+      })
+      .catch(() => setTemplateError("Failed to load templates"))
+      .finally(() => setTemplateLoading(false));
+  }, []);
+
+  // Save or update template
+  const handleSaveTemplate = useCallback(async () => {
+    setSaveTemplateLoading(true);
+    setSaveTemplateError(null);
+    setSaveTemplateSuccess(null);
+    try {
+      const payload: any = {
+        name: templateName || subject || "Untitled",
+        subject,
+        body: htmlTemplate,
+      };
+      if (selectedTemplateId) payload._id = selectedTemplateId;
+      const res = await fetch("/api/emails/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
+      setSaveTemplateSuccess(
+        selectedTemplateId ? "Template updated" : "Template saved",
+      );
+      setSelectedTemplateId(data._id || selectedTemplateId); // select the new/updated template
+      // Refresh templates
+      setTemplateLoading(true);
+      fetch("/api/emails/templates")
+        .then((res) => res.json())
+        .then((data) => setTemplates(data.templates || []))
+        .finally(() => setTemplateLoading(false));
+    } catch (err: any) {
+      setSaveTemplateError(err.message || "Save failed");
+    } finally {
+      setSaveTemplateLoading(false);
+      setTimeout(() => setSaveTemplateSuccess(null), 2000);
+    }
+  }, [templateName, subject, htmlTemplate, selectedTemplateId]);
+
+  // When template is selected, load its subject/body
+  useEffect(() => {
+    if (!selectedTemplateId) return;
+    const tpl = templates.find((t) => t._id === selectedTemplateId);
+    if (tpl) {
+      setSubject(tpl.subject);
+      setHtmlTemplate(tpl.body);
+    }
+  }, [selectedTemplateId, templates]);
 
   // Hydrate state from localStorage on mount (browser only)
   useEffect(() => {
@@ -319,6 +404,64 @@ export function MassCampaign({
         </div>
         <div className="text-sm text-muted-foreground">
           {validContactCount} valid contact{validContactCount !== 1 ? "s" : ""}
+        </div>
+      </div>
+
+      {/* Template Selector */}
+      <div className="p-4 border-b border-border">
+        <label className="block text-sm font-medium mb-1">Email Template</label>
+        {templateLoading ? (
+          <span className="text-xs text-muted-foreground">
+            Loading templates...
+          </span>
+        ) : templateError ? (
+          <span className="text-xs text-red-500">{templateError}</span>
+        ) : (
+          <select
+            className="w-full rounded border p-2 mb-2"
+            value={selectedTemplateId}
+            onChange={(e) => {
+              setSelectedTemplateId(e.target.value);
+              // Set templateName to the selected template's name for editing
+              const tpl = templates.find((t) => t._id === e.target.value);
+              setTemplateName(tpl?.name || "");
+            }}
+          >
+            <option value="">-- Select a template --</option>
+            {templates.map((tpl: EmailTemplate) => (
+              <option key={tpl._id} value={tpl._id}>
+                {tpl.sequence ? `${tpl.sequence}. ` : ""}
+                {tpl.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {/* Save as Template UI */}
+        <div className="flex flex-col gap-2 mt-2">
+          <input
+            className="w-full rounded border p-2"
+            type="text"
+            placeholder="Template name"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            disabled={saveTemplateLoading}
+          />
+          <button
+            type="button"
+            className="rounded bg-primary text-primary-foreground px-3 py-1 font-medium disabled:opacity-50"
+            onClick={handleSaveTemplate}
+            disabled={saveTemplateLoading || !subject || !htmlTemplate}
+          >
+            {selectedTemplateId ? "Update Template" : "Save as Template"}
+          </button>
+          {saveTemplateError && (
+            <span className="text-xs text-red-500">{saveTemplateError}</span>
+          )}
+          {saveTemplateSuccess && (
+            <span className="text-xs text-green-600">
+              {saveTemplateSuccess}
+            </span>
+          )}
         </div>
       </div>
 

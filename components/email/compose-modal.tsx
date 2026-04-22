@@ -31,19 +31,25 @@ export function ComposeModal({
 }: ComposeModalProps) {
   const [fromEmail, setFromEmail] = useState(
     () =>
-      (typeof window !== "undefined" && localStorage.getItem("compose_fromEmail")) || initialFromEmail
+      (typeof window !== "undefined" &&
+        localStorage.getItem("compose_fromEmail")) ||
+      initialFromEmail,
   );
   const [to, setTo] = useState(
     () =>
-      (typeof window !== "undefined" && localStorage.getItem("compose_to")) || initialTo
+      (typeof window !== "undefined" && localStorage.getItem("compose_to")) ||
+      initialTo,
   );
   const [subject, setSubject] = useState(
     () =>
-      (typeof window !== "undefined" && localStorage.getItem("compose_subject")) || initialSubject
+      (typeof window !== "undefined" &&
+        localStorage.getItem("compose_subject")) ||
+      initialSubject,
   );
   const [body, setBody] = useState(
     () =>
-      (typeof window !== "undefined" && localStorage.getItem("compose_body")) || initialBody
+      (typeof window !== "undefined" && localStorage.getItem("compose_body")) ||
+      initialBody,
   );
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -75,7 +81,9 @@ export function ComposeModal({
   // Reset form when initial values change (e.g., reply/forward)
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setFromEmail(localStorage.getItem("compose_fromEmail") || initialFromEmail);
+      setFromEmail(
+        localStorage.getItem("compose_fromEmail") || initialFromEmail,
+      );
       setTo(localStorage.getItem("compose_to") || initialTo);
       setSubject(localStorage.getItem("compose_subject") || initialSubject);
       setBody(localStorage.getItem("compose_body") || initialBody);

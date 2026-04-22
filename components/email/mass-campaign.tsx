@@ -1,160 +1,188 @@
-"use client"
+"use client";
 
-import { useState, useCallback } from "react"
-import { Send, Plus, Trash2, Upload, AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
-import type { MassCampaignContact } from "@/lib/types/email"
-import { ImagePicker } from "./image-picker"
+import { useState, useCallback } from "react";
+import {
+  Send,
+  Plus,
+  Trash2,
+  Upload,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+} from "lucide-react";
+import type { MassCampaignContact } from "@/lib/types/email";
+import { ImagePicker } from "./image-picker";
 
-interface MassCampaignProps {
+export interface MassCampaignProps {
   onSend: (data: {
-    subject: string
-    html_template: string
-    contacts: MassCampaignContact[]
-  }) => Promise<void>
+    from_email: string;
+    subject: string;
+    html_template: string;
+    contacts: MassCampaignContact[];
+  }) => Promise<void>;
 }
 
 export function MassCampaign({ onSend }: MassCampaignProps) {
-  const [subject, setSubject] = useState("")
+  const [fromEmail, setFromEmail] = useState("");
+  const [subject, setSubject] = useState("");
   const [htmlTemplate, setHtmlTemplate] = useState(
-    `<h2>Hello {name},</h2>\n<p>Your message here...</p>`
-  )
+    `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
+  );
   const [contacts, setContacts] = useState<MassCampaignContact[]>([
     { email: "", first_name: "" },
-  ])
-  const [bulkInput, setBulkInput] = useState("")
-  const [showBulkInput, setShowBulkInput] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  ]);
+  const [bulkInput, setBulkInput] = useState("");
+  const [showBulkInput, setShowBulkInput] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const addContact = useCallback(() => {
-    setContacts((prev) => [...prev, { email: "", first_name: "" }])
-  }, [])
+    setContacts((prev) => [...prev, { email: "", first_name: "" }]);
+  }, []);
 
   const removeContact = useCallback((index: number) => {
-    setContacts((prev) => prev.filter((_, i) => i !== index))
-  }, [])
+    setContacts((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const updateContact = useCallback(
     (index: number, field: keyof MassCampaignContact, value: string) => {
       setContacts((prev) =>
         prev.map((contact, i) =>
-          i === index ? { ...contact, [field]: value } : contact
-        )
-      )
+          i === index ? { ...contact, [field]: value } : contact,
+        ),
+      );
     },
-    []
-  )
+    [],
+  );
 
   const parseBulkInput = useCallback(() => {
-    const lines = bulkInput.trim().split("\n")
-    const newContacts: MassCampaignContact[] = []
+    const lines = bulkInput.trim().split("\n");
+    const newContacts: MassCampaignContact[] = [];
 
     for (const line of lines) {
-      const trimmedLine = line.trim()
-      if (!trimmedLine) continue
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
 
       // Support formats: "email,name" or "email, name" or "name <email>"
-      let email = ""
-      let first_name = ""
+      let email = "";
+      let first_name = "";
 
       if (trimmedLine.includes("<") && trimmedLine.includes(">")) {
         // Format: "Name <email@example.com>"
-        const match = trimmedLine.match(/^(.+?)\s*<(.+?)>$/)
+        const match = trimmedLine.match(/^(.+?)\s*<(.+?)>$/);
         if (match) {
-          first_name = match[1].trim()
-          email = match[2].trim()
+          first_name = match[1].trim();
+          email = match[2].trim();
         }
       } else if (trimmedLine.includes(",")) {
         // Format: "email,name" or "email, name"
-        const parts = trimmedLine.split(",")
-        email = parts[0].trim()
-        first_name = parts[1]?.trim() || ""
+        const parts = trimmedLine.split(",");
+        email = parts[0].trim();
+        first_name = parts[1]?.trim() || "";
       } else {
         // Just an email
-        email = trimmedLine
+        email = trimmedLine;
       }
 
       if (email && email.includes("@")) {
-        newContacts.push({ email, first_name: first_name || email.split("@")[0] })
+        newContacts.push({
+          email,
+          first_name: first_name || email.split("@")[0],
+        });
       }
     }
 
     if (newContacts.length > 0) {
-      setContacts(newContacts)
-      setBulkInput("")
-      setShowBulkInput(false)
-      setSuccess(`Imported ${newContacts.length} contacts`)
-      setTimeout(() => setSuccess(null), 3000)
+      setContacts(newContacts);
+      setBulkInput("");
+      setShowBulkInput(false);
+      setSuccess(`Imported ${newContacts.length} contacts`);
+      setTimeout(() => setSuccess(null), 3000);
     } else {
-      setError("No valid contacts found. Use format: email,name (one per line)")
-      setTimeout(() => setError(null), 5000)
+      setError(
+        "No valid contacts found. Use format: email,name (one per line)",
+      );
+      setTimeout(() => setError(null), 5000);
     }
-  }, [bulkInput])
+  }, [bulkInput]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
-      e.preventDefault()
-      setError(null)
-      setSuccess(null)
+      e.preventDefault();
+      setError(null);
+      setSuccess(null);
 
       // Validate
+      if (!fromEmail.trim()) {
+        setError("From email is required");
+        return;
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fromEmail.trim())) {
+        setError("From email is invalid");
+        return;
+      }
       if (!subject.trim()) {
-        setError("Subject is required")
-        return
+        setError("Subject is required");
+        return;
       }
-
       if (!htmlTemplate.trim()) {
-        setError("HTML template is required")
-        return
+        setError("HTML template is required");
+        return;
       }
-
       const validContacts = contacts.filter(
-        (c) => c.email.trim() && c.first_name.trim()
-      )
-
+        (c) => c.email.trim() && c.first_name.trim(),
+      );
       if (validContacts.length === 0) {
-        setError("At least one valid contact (with email and name) is required")
-        return
+        setError(
+          "At least one valid contact (with email and name) is required",
+        );
+        return;
       }
 
-      setIsSending(true)
+      setIsSending(true);
 
       try {
         await onSend({
+          from_email: fromEmail.trim(),
           subject: subject.trim(),
           html_template: htmlTemplate,
           contacts: validContacts,
-        })
-        setSuccess(`Campaign sent to ${validContacts.length} contacts!`)
+        });
+        setSuccess(`Campaign sent to ${validContacts.length} contacts!`);
         // Reset form
-        setSubject("")
-        setHtmlTemplate(`<h2>Hello {name},</h2>\n<p>Your message here...</p>`)
-        setContacts([{ email: "", first_name: "" }])
+        setFromEmail("");
+        setSubject("");
+        setHtmlTemplate(`<h2>Hello {name},</h2>\n<p>Your message here...</p>`);
+        setContacts([{ email: "", first_name: "" }]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to send campaign")
+        setError(
+          err instanceof Error ? err.message : "Failed to send campaign",
+        );
       } finally {
-        setIsSending(false)
+        setIsSending(false);
       }
     },
-    [subject, htmlTemplate, contacts, onSend]
-  )
+    [subject, htmlTemplate, contacts, onSend],
+  );
 
   const validContactCount = contacts.filter(
-    (c) => c.email.trim() && c.first_name.trim()
-  ).length
+    (c) => c.email.trim() && c.first_name.trim(),
+  ).length;
 
   const handleInsertImage = useCallback((imageUrl: string) => {
-    const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`
-    setHtmlTemplate((prev) => prev + "\n" + imageHtml)
-  }, [])
+    const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`;
+    setHtmlTemplate((prev) => prev + "\n" + imageHtml);
+  }, []);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border p-4">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Mass Campaign</h2>
+          <h2 className="text-lg font-semibold text-foreground">
+            Mass Campaign
+          </h2>
           <p className="text-sm text-muted-foreground">
             Send personalized emails to multiple contacts
           </p>
@@ -165,7 +193,10 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
         <div className="flex-1 overflow-auto p-4">
           <div className="mx-auto max-w-3xl space-y-6">
             {/* Status Messages */}
@@ -183,9 +214,29 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
               </div>
             )}
 
+            {/* From Email */}
+            <div className="space-y-2">
+              <label
+                htmlFor="from-email"
+                className="text-sm font-medium text-foreground"
+              >
+                From Email
+              </label>
+              <input
+                id="from-email"
+                type="email"
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="sender@example.com"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
             {/* Subject */}
             <div className="space-y-2">
-              <label htmlFor="subject" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="subject"
+                className="text-sm font-medium text-foreground"
+              >
                 Subject Line
               </label>
               <input
@@ -200,12 +251,16 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
 
             {/* HTML Template */}
             <div className="space-y-2">
-              <label htmlFor="template" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="template"
+                className="text-sm font-medium text-foreground"
+              >
                 HTML Template
               </label>
               <p className="text-xs text-muted-foreground">
-                Use <code className="rounded bg-muted px-1 py-0.5">{"{name}"}</code> as a
-                placeholder for personalization
+                Use{" "}
+                <code className="rounded bg-muted px-1 py-0.5">{"{name}"}</code>{" "}
+                as a placeholder for personalization
               </p>
               <textarea
                 id="template"
@@ -225,7 +280,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                 dangerouslySetInnerHTML={{
                   __html: htmlTemplate.replace(
                     /\{name\}/g,
-                    contacts[0]?.first_name || "John"
+                    contacts[0]?.first_name || "John",
                   ),
                 }}
               />
@@ -263,9 +318,13 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                   <p className="text-xs text-muted-foreground">
                     Paste contacts, one per line. Supported formats:
                     <br />
-                    <code className="text-foreground">email@example.com,FirstName</code>
+                    <code className="text-foreground">
+                      email@example.com,FirstName
+                    </code>
                     <br />
-                    <code className="text-foreground">FirstName &lt;email@example.com&gt;</code>
+                    <code className="text-foreground">
+                      FirstName &lt;email@example.com&gt;
+                    </code>
                   </p>
                   <textarea
                     value={bulkInput}
@@ -300,7 +359,9 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                     <input
                       type="email"
                       value={contact.email}
-                      onChange={(e) => updateContact(index, "email", e.target.value)}
+                      onChange={(e) =>
+                        updateContact(index, "email", e.target.value)
+                      }
                       placeholder="email@example.com"
                       className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     />
@@ -352,5 +413,5 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
         </div>
       </form>
     </div>
-  )
+  );
 }

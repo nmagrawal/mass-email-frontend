@@ -1,17 +1,23 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { X, Minus, Maximize2, Minimize2, Send, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { ImagePicker } from "./image-picker"
+import { useState, useEffect } from "react";
+import { X, Minus, Maximize2, Minimize2, Send, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ImagePicker } from "./image-picker";
 
 interface ComposeModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onSend: (data: { to: string; subject: string; body: string }) => Promise<void>
-  initialTo?: string
-  initialSubject?: string
-  initialBody?: string
+  isOpen: boolean;
+  onClose: () => void;
+  onSend: (data: {
+    from_email: string;
+    to: string;
+    subject: string;
+    body: string;
+  }) => Promise<void>;
+  initialTo?: string;
+  initialSubject?: string;
+  initialBody?: string;
+  initialFromEmail?: string;
 }
 
 export function ComposeModal({
@@ -21,82 +27,94 @@ export function ComposeModal({
   initialTo = "",
   initialSubject = "",
   initialBody = "",
+  initialFromEmail = "",
 }: ComposeModalProps) {
-  const [to, setTo] = useState(initialTo)
-  const [subject, setSubject] = useState(initialSubject)
-  const [body, setBody] = useState(initialBody)
-  const [isMinimized, setIsMinimized] = useState(false)
-  const [isMaximized, setIsMaximized] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [fromEmail, setFromEmail] = useState(initialFromEmail);
+  const [to, setTo] = useState(initialTo);
+  const [subject, setSubject] = useState(initialSubject);
+  const [body, setBody] = useState(initialBody);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Reset form when initial values change (e.g., reply/forward)
   useEffect(() => {
-    setTo(initialTo)
-    setSubject(initialSubject)
-    setBody(initialBody)
-  }, [initialTo, initialSubject, initialBody])
+    setFromEmail(initialFromEmail);
+    setTo(initialTo);
+    setSubject(initialSubject);
+    setBody(initialBody);
+  }, [initialFromEmail, initialTo, initialSubject, initialBody]);
 
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
-      setError(null)
-      setIsMinimized(false)
+      setError(null);
+      setIsMinimized(false);
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
+    e.preventDefault();
+    setError(null);
 
+    if (!fromEmail.trim()) {
+      setError("Please enter a sender email");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(fromEmail.trim())) {
+      setError("Please enter a valid sender email address");
+      return;
+    }
     if (!to.trim()) {
-      setError("Please enter a recipient email")
-      return
+      setError("Please enter a recipient email");
+      return;
     }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(to.trim())) {
-      setError("Please enter a valid email address")
-      return
+      setError("Please enter a valid recipient email address");
+      return;
     }
 
-    setIsSending(true)
+    setIsSending(true);
     try {
       await onSend({
+        from_email: fromEmail.trim(),
         to: to.trim(),
         subject: subject.trim(),
         body: body.trim(),
-      })
+      });
       // Reset form and close
-      setTo("")
-      setSubject("")
-      setBody("")
-      onClose()
+      setFromEmail("");
+      setTo("");
+      setSubject("");
+      setBody("");
+      onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send email")
+      setError(err instanceof Error ? err.message : "Failed to send email");
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
 
   const handleClose = () => {
-    if (to || subject || body) {
+    if (fromEmail || to || subject || body) {
       // Could add a confirmation dialog here
     }
-    setTo("")
-    setSubject("")
-    setBody("")
-    onClose()
-  }
+    setFromEmail("");
+    setTo("");
+    setSubject("");
+    setBody("");
+    onClose();
+  };
 
   const handleInsertImage = (imageUrl: string) => {
     // Insert image HTML at the end of the body
-    const imageHtml = `<img src="${imageUrl}" alt="Embedded image" style="max-width: 100%; height: auto;" />`
-    setBody((prev) => prev + (prev ? "\n\n" : "") + imageHtml)
-  }
+    const imageHtml = `<img src="${imageUrl}" alt="Embedded image" style="max-width: 100%; height: auto;" />`;
+    setBody((prev) => prev + (prev ? "\n\n" : "") + imageHtml);
+  };
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <>
@@ -115,7 +133,7 @@ export function ComposeModal({
             ? "bottom-0 right-4 h-12 w-80"
             : isMaximized
               ? "inset-4 rounded-lg"
-              : "bottom-0 right-4 h-[500px] w-[560px] max-w-[calc(100vw-2rem)]"
+              : "bottom-0 right-4 h-[500px] w-[560px] max-w-[calc(100vw-2rem)]",
         )}
       >
         {/* Header */}
@@ -129,8 +147,8 @@ export function ComposeModal({
           <div className="flex items-center gap-1">
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                setIsMinimized(!isMinimized)
+                e.stopPropagation();
+                setIsMinimized(!isMinimized);
               }}
               className="rounded p-1 transition-colors hover:bg-accent"
               aria-label={isMinimized ? "Expand" : "Minimize"}
@@ -139,9 +157,9 @@ export function ComposeModal({
             </button>
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                setIsMaximized(!isMaximized)
-                setIsMinimized(false)
+                e.stopPropagation();
+                setIsMaximized(!isMaximized);
+                setIsMinimized(false);
               }}
               className="rounded p-1 transition-colors hover:bg-accent"
               aria-label={isMaximized ? "Restore" : "Maximize"}
@@ -154,8 +172,8 @@ export function ComposeModal({
             </button>
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                handleClose()
+                e.stopPropagation();
+                handleClose();
               }}
               className="rounded p-1 transition-colors hover:bg-accent"
               aria-label="Close"
@@ -167,10 +185,34 @@ export function ComposeModal({
 
         {/* Form - hidden when minimized */}
         {!isMinimized && (
-          <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+          <form
+            onSubmit={handleSubmit}
+            className="flex flex-1 flex-col overflow-hidden"
+          >
+            {/* From field */}
+            <div className="flex items-center border-b border-border px-4">
+              <label
+                htmlFor="compose-from"
+                className="w-12 text-sm text-muted-foreground"
+              >
+                From
+              </label>
+              <input
+                id="compose-from"
+                type="email"
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="sender@example.com"
+                className="flex-1 bg-transparent py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                required
+              />
+            </div>
             {/* To field */}
             <div className="flex items-center border-b border-border px-4">
-              <label htmlFor="compose-to" className="w-12 text-sm text-muted-foreground">
+              <label
+                htmlFor="compose-to"
+                className="w-12 text-sm text-muted-foreground"
+              >
                 To
               </label>
               <input
@@ -186,7 +228,10 @@ export function ComposeModal({
 
             {/* Subject field */}
             <div className="flex items-center border-b border-border px-4">
-              <label htmlFor="compose-subject" className="w-12 text-sm text-muted-foreground">
+              <label
+                htmlFor="compose-subject"
+                className="w-12 text-sm text-muted-foreground"
+              >
                 Subject
               </label>
               <input
@@ -239,5 +284,5 @@ export function ComposeModal({
         )}
       </div>
     </>
-  )
+  );
 }

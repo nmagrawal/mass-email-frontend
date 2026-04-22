@@ -1,124 +1,141 @@
-"use client"
+"use client";
 
-import { useState, useCallback, useMemo } from "react"
-import { Sidebar } from "./sidebar"
-import { EmailList } from "./email-list"
-import { EmailDetail } from "./email-detail"
-import { MassCampaign } from "./mass-campaign"
-import { ComposeModal } from "./compose-modal"
-import { useEmails, useEmail } from "@/hooks/use-emails"
-import type { MassCampaignContact } from "@/lib/types/email"
-import { Menu, RefreshCw } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { Email } from "@/lib/types/email"
+import { useState, useCallback, useMemo } from "react";
+import { Sidebar } from "./sidebar";
+import { EmailList } from "./email-list";
+import { EmailDetail } from "./email-detail";
+import { MassCampaign } from "./mass-campaign";
+import { ComposeModal } from "./compose-modal";
+import { useEmails, useEmail } from "@/hooks/use-emails";
+import type { MassCampaignContact } from "@/lib/types/email";
+import { Menu, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { Email } from "@/lib/types/email";
 
 export function EmailClient() {
-  const [currentFolder, setCurrentFolder] = useState("inbox")
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null)
-  const [showMobileSidebar, setShowMobileSidebar] = useState(false)
-  const [showCompose, setShowCompose] = useState(false)
+  const [currentFolder, setCurrentFolder] = useState("inbox");
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
   const [composeInitial, setComposeInitial] = useState<{
-    to?: string
-    subject?: string
-    body?: string
-  }>({})
+    to?: string;
+    subject?: string;
+    body?: string;
+  }>({});
 
   // Data fetching
-  const { emails, isLoading: emailsLoading, mutate: mutateEmails } = useEmails(currentFolder)
-  const { email: selectedEmail, isLoading: emailLoading } = useEmail(selectedEmailId)
+  const {
+    emails,
+    isLoading: emailsLoading,
+    mutate: mutateEmails,
+  } = useEmails(currentFolder);
+  const { email: selectedEmail, isLoading: emailLoading } =
+    useEmail(selectedEmailId);
 
   // Calculate unread count for inbox
   const unreadCount = useMemo(() => {
-    if (currentFolder !== "inbox") return 0
-    return emails.filter((e) => !e.read).length
-  }, [emails, currentFolder])
+    if (currentFolder !== "inbox") return 0;
+    return emails.filter((e) => !e.read).length;
+  }, [emails, currentFolder]);
 
   const handleFolderChange = useCallback((folder: string) => {
-    setCurrentFolder(folder)
-    setSelectedEmailId(null)
-    setShowMobileSidebar(false)
-  }, [])
+    setCurrentFolder(folder);
+    setSelectedEmailId(null);
+    setShowMobileSidebar(false);
+  }, []);
 
   const handleEmailSelect = useCallback((email: Email) => {
-    setSelectedEmailId(email.id)
-  }, [])
+    setSelectedEmailId(email.id);
+  }, []);
 
   const handleBack = useCallback(() => {
-    setSelectedEmailId(null)
-  }, [])
+    setSelectedEmailId(null);
+  }, []);
 
   const handleCompose = useCallback(() => {
-    setComposeInitial({})
-    setShowCompose(true)
-  }, [])
+    setComposeInitial({});
+    setShowCompose(true);
+  }, []);
 
   const handleSendMassCampaign = useCallback(
     async (data: {
-      subject: string
-      html_template: string
-      contacts: MassCampaignContact[]
+      from_email: string;
+      subject: string;
+      html_template: string;
+      contacts: MassCampaignContact[];
     }) => {
       const response = await fetch("/api/mass-send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      })
+      });
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to send mass campaign")
+        const error = await response.json();
+        throw new Error(error.error || "Failed to send mass campaign");
       }
 
-      return response.json()
+      return response.json();
     },
-    []
-  )
+    [],
+  );
 
   const handleReply = useCallback((email: Email) => {
     setComposeInitial({
       to: email.from_email,
       subject: `Re: ${email.subject}`,
       body: `\n\n---\nOn ${new Date(email.created_at).toLocaleString()}, ${email.from_name || email.from_email} wrote:\n\n${email.text_body || ""}`,
-    })
-    setShowCompose(true)
-  }, [])
+    });
+    setShowCompose(true);
+  }, []);
 
-  const handleSendEmail = useCallback(async (data: { to: string; subject: string; body: string }) => {
-    const response = await fetch("/api/emails/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to send email")
-    }
-
-    // Refresh the email list
-    mutateEmails()
-  }, [mutateEmails])
-
-  const handleDeleteEmail = useCallback(async (id: string) => {
-    try {
-      const response = await fetch(`/api/emails/${id}`, {
-        method: "DELETE",
-      })
+  const handleSendEmail = useCallback(
+    async (data: {
+      from_email: string;
+      to: string;
+      subject: string;
+      body: string;
+    }) => {
+      const response = await fetch("/api/emails/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
 
       if (!response.ok) {
-        throw new Error("Failed to delete email")
+        const error = await response.json();
+        throw new Error(error.error || "Failed to send email");
       }
 
-      setSelectedEmailId(null)
-      mutateEmails()
-    } catch (error) {
-      console.error("Error deleting email:", error)
-    }
-  }, [mutateEmails])
+      // Refresh the email list
+      mutateEmails();
+    },
+    [mutateEmails],
+  );
+
+  const handleDeleteEmail = useCallback(
+    async (id: string) => {
+      try {
+        const response = await fetch(`/api/emails/${id}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to delete email");
+        }
+
+        setSelectedEmailId(null);
+        mutateEmails();
+      } catch (error) {
+        console.error("Error deleting email:", error);
+      }
+    },
+    [mutateEmails],
+  );
 
   const handleRefresh = useCallback(() => {
-    mutateEmails()
-  }, [mutateEmails])
+    mutateEmails();
+  }, [mutateEmails]);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -134,7 +151,7 @@ export function EmailClient() {
       <div
         className={cn(
           "fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 lg:relative lg:translate-x-0",
-          showMobileSidebar ? "translate-x-0" : "-translate-x-full"
+          showMobileSidebar ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <Sidebar
@@ -171,7 +188,7 @@ export function EmailClient() {
             <div
               className={cn(
                 "flex w-full flex-col border-r border-border lg:w-80 xl:w-96",
-                selectedEmailId ? "hidden lg:flex" : "flex"
+                selectedEmailId ? "hidden lg:flex" : "flex",
               )}
             >
               {/* Mobile header */}
@@ -225,7 +242,7 @@ export function EmailClient() {
             <div
               className={cn(
                 "flex-1 overflow-hidden",
-                !selectedEmailId ? "hidden lg:flex" : "flex"
+                !selectedEmailId ? "hidden lg:flex" : "flex",
               )}
             >
               <div className="flex h-full w-full flex-col">
@@ -247,10 +264,11 @@ export function EmailClient() {
         isOpen={showCompose}
         onClose={() => setShowCompose(false)}
         onSend={handleSendEmail}
+        initialFromEmail={""}
         initialTo={composeInitial.to}
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
       />
     </div>
-  )
+  );
 }

@@ -8,9 +8,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Validate required fields
-    if (!body.subject || !body.html_template || !body.contacts) {
+    if (!body.from_email || !body.subject || !body.html_template || !body.contacts) {
       return NextResponse.json(
-        { error: "Missing required fields: subject, html_template, contacts" },
+        { error: "Missing required fields: from_email, subject, html_template, contacts" },
         { status: 400 }
       )
     }
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         "x-api-key": API_KEY,
       },
       body: JSON.stringify({
+        from_email: body.from_email,
         subject: body.subject,
         html_template: body.html_template,
         contacts: body.contacts,

@@ -37,6 +37,7 @@ export interface MassCampaignContact {
 }
 
 export interface MassCampaignPayload {
+  from_email: string
   subject: string
   html_template: string
   contacts: MassCampaignContact[]

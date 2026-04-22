@@ -7,13 +7,27 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
+    // Validate required fields
+    if (!body.from_email || !body.to || !body.subject || !body.body) {
+      return NextResponse.json(
+        { error: "Missing required fields: from_email, to, subject, body" },
+        { status: 400 }
+      )
+    }
+
     const response = await fetch(`${API_URL}/api/send`, {
       method: "POST",
       headers: {
         "x-api-key": API_KEY,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        from_email: body.from_email,
+        to: body.to,
+        subject: body.subject,
+        body: body.body,
+        html_body: body.html_body,
+      }),
     })
 
     if (!response.ok) {

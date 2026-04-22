@@ -23,55 +23,65 @@ export interface MassCampaignProps {
 }
 
 export function MassCampaign({ onSend }: MassCampaignProps) {
-  const [fromEmail, setFromEmail] = useState(
-    () => localStorage.getItem("mass_fromEmail") || "",
-  );
-  const [subject, setSubject] = useState(
-    () => localStorage.getItem("mass_subject") || "",
-  );
+  const [fromEmail, setFromEmail] = useState("");
+  const [subject, setSubject] = useState("");
   const [htmlTemplate, setHtmlTemplate] = useState(
-    () =>
-      localStorage.getItem("mass_htmlTemplate") ||
-      `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
+    `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
   );
-  const [contacts, setContacts] = useState<MassCampaignContact[]>(() => {
-    const cached = localStorage.getItem("mass_contacts");
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch {
-        return [{ email: "", first_name: "" }];
-      }
-    }
-    return [{ email: "", first_name: "" }];
-  });
+  const [contacts, setContacts] = useState<MassCampaignContact[]>([
+    { email: "", first_name: "" },
+  ]);
   const [bulkInput, setBulkInput] = useState("");
-  const [showBulkInput, setShowBulkInput] = useState(() => {
-    const cached = localStorage.getItem("mass_showBulkInput");
-    return cached === "true";
-  });
+  const [showBulkInput, setShowBulkInput] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [bulkFileName, setBulkFileName] = useState<string>("");
 
-  // Persist fields to localStorage on change
+  // Hydrate state from localStorage on mount (browser only)
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    setFromEmail(localStorage.getItem("mass_fromEmail") || "");
+    setSubject(localStorage.getItem("mass_subject") || "");
+    setHtmlTemplate(
+      localStorage.getItem("mass_htmlTemplate") ||
+        `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
+    );
+    const cachedContacts = localStorage.getItem("mass_contacts");
+    if (cachedContacts) {
+      try {
+        setContacts(JSON.parse(cachedContacts));
+      } catch {
+        setContacts([{ email: "", first_name: "" }]);
+      }
+    }
+    setBulkInput(localStorage.getItem("mass_bulkInput") || "");
+    setShowBulkInput(localStorage.getItem("mass_showBulkInput") === "true");
+  }, []);
+
+  // Persist fields to localStorage on change (browser only)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("mass_fromEmail", fromEmail);
   }, [fromEmail]);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("mass_subject", subject);
   }, [subject]);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("mass_htmlTemplate", htmlTemplate);
   }, [htmlTemplate]);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("mass_contacts", JSON.stringify(contacts));
   }, [contacts]);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("mass_bulkInput", bulkInput);
   }, [bulkInput]);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem(
       "mass_showBulkInput",
       showBulkInput ? "true" : "false",
@@ -148,7 +158,15 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     }
   }, [bulkInput]);
 
-  // File upload handler for txt/csv/json
+  const validContactCount = contacts.filter(
+    (c) => c.email.trim() && c.first_name.trim(),
+  ).length;
+
+  const handleInsertImage = useCallback((imageUrl: string) => {
+    const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`;
+    setHtmlTemplate((prev) => prev + "\n" + imageHtml);
+  }, []);
+
   const handleFileUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -281,15 +299,6 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     },
     [subject, htmlTemplate, contacts, onSend],
   );
-
-  const validContactCount = contacts.filter(
-    (c) => c.email.trim() && c.first_name.trim(),
-  ).length;
-
-  const handleInsertImage = useCallback((imageUrl: string) => {
-    const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`;
-    setHtmlTemplate((prev) => prev + "\n" + imageHtml);
-  }, []);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -568,3 +577,4 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
     </div>
   );
 }
+// Just an email

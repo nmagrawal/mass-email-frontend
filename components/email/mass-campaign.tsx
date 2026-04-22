@@ -36,6 +36,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [bulkFileName, setBulkFileName] = useState<string>("");
 
   const addContact = useCallback(() => {
     setContacts((prev) => [...prev, { email: "", first_name: "" }]);
@@ -106,6 +107,81 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
       setTimeout(() => setError(null), 5000);
     }
   }, [bulkInput]);
+
+  // File upload handler for txt/csv/json
+  const handleFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) {
+        setBulkFileName("");
+        return;
+      }
+      setBulkFileName(file.name);
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      try {
+        let importedContacts: MassCampaignContact[] = [];
+        if (ext === "json") {
+          const text = await file.text();
+          const arr = JSON.parse(text);
+          if (Array.isArray(arr)) {
+            importedContacts = arr
+              .filter(
+                (c) =>
+                  c && typeof c.email === "string" && c.email.includes("@"),
+              )
+              .map((c) => ({
+                email: c.email,
+                first_name: c.first_name || c.email.split("@")[0],
+              }));
+          }
+        } else if (ext === "txt" || ext === "csv") {
+          const text = await file.text();
+          const lines = text.split(/\r?\n/);
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            let email = "";
+            let first_name = "";
+            if (trimmedLine.includes("<") && trimmedLine.includes(">")) {
+              const match = trimmedLine.match(/^(.+?)\s*<(.+?)>$/);
+              if (match) {
+                first_name = match[1].trim();
+                email = match[2].trim();
+              }
+            } else if (trimmedLine.includes(",")) {
+              const parts = trimmedLine.split(",");
+              email = parts[0].trim();
+              first_name = parts[1]?.trim() || "";
+            } else {
+              email = trimmedLine;
+            }
+            if (email && email.includes("@")) {
+              importedContacts.push({
+                email,
+                first_name: first_name || email.split("@")[0],
+              });
+            }
+          }
+        } else {
+          setError("Unsupported file type. Use .txt, .csv, or .json");
+          setTimeout(() => setError(null), 5000);
+          return;
+        }
+        if (importedContacts.length > 0) {
+          setContacts(importedContacts);
+          setSuccess(`Imported ${importedContacts.length} contacts from file`);
+          setTimeout(() => setSuccess(null), 3000);
+        } else {
+          setError("No valid contacts found in file");
+          setTimeout(() => setError(null), 5000);
+        }
+      } catch (err) {
+        setError("Failed to parse file. Ensure it is valid.");
+        setTimeout(() => setError(null), 5000);
+      }
+    },
+    [],
+  );
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -280,7 +356,7 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                 dangerouslySetInnerHTML={{
                   __html: htmlTemplate.replace(
                     /\{name\}/g,
-                    contacts[0]?.first_name || "John",
+                    contacts[0]?.first_name || "Voter",
                   ),
                 }}
               />
@@ -316,7 +392,9 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
               {showBulkInput && (
                 <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
                   <p className="text-xs text-muted-foreground">
-                    Paste contacts, one per line. Supported formats:
+                    Paste contacts, one per line, or upload a file.
+                    <br />
+                    Supported formats:
                     <br />
                     <code className="text-foreground">
                       email@example.com,FirstName
@@ -325,6 +403,10 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                     <code className="text-foreground">
                       FirstName &lt;email@example.com&gt;
                     </code>
+                    <br />
+                    <span className="text-foreground">
+                      .txt, .csv, or .json file
+                    </span>
                   </p>
                   <textarea
                     value={bulkInput}
@@ -333,6 +415,28 @@ export function MassCampaign({ onSend }: MassCampaignProps) {
                     placeholder="voter1@gmail.com,Robert&#10;voter2@gmail.com,Sarah"
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   />
+                  {/* Custom file upload button */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <label
+                      htmlFor="bulk-file-upload"
+                      className="inline-block cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      Choose File
+                      <input
+                        id="bulk-file-upload"
+                        type="file"
+                        accept=".txt,.csv,.json"
+                        onChange={handleFileUpload}
+                        style={{ display: "none" }}
+                      />
+                    </label>
+                    <span
+                      className="text-xs text-muted-foreground"
+                      id="bulk-file-upload-filename"
+                    >
+                      {bulkFileName || "No file chosen"}
+                    </span>
+                  </div>
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"

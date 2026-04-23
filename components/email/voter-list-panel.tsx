@@ -172,6 +172,7 @@ export function VoterListPanel({
                 </th>
                 <th className="border-b p-2 text-left">Name</th>
                 <th className="border-b p-2 text-left">City</th>
+                <th className="border-b p-2 text-left">Last Template Sent</th>
               </tr>
             </thead>
             <tbody>
@@ -189,6 +190,9 @@ export function VoterListPanel({
                     </td>
                     <td className="border-b p-2">{voter.full_name}</td>
                     <td className="border-b p-2">{voter.demographics.city}</td>
+                    <td className="border-b p-2">
+                      {voter.last_template_sent || "-"}
+                    </td>
                   </tr>
                 );
               })}

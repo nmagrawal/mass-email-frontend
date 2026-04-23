@@ -13,14 +13,17 @@ import {
 import type { MassCampaignContact } from "@/lib/types/email";
 import { ImagePicker } from "./image-picker";
 
+export interface MassCampaignSendPayload {
+  from_email: string;
+  from_name: string;
+  subject: string;
+  html_template: string;
+  contacts: MassCampaignContact[];
+  template_name?: string;
+}
+
 export interface MassCampaignProps {
-  onSend: (data: {
-    from_email: string;
-    from_name: string;
-    subject: string;
-    html_template: string;
-    contacts: MassCampaignContact[];
-  }) => Promise<void>;
+  onSend: (data: MassCampaignSendPayload) => Promise<void>;
   initialContacts?: MassCampaignContact[];
   setContacts?: (contacts: MassCampaignContact[]) => void;
 }
@@ -39,6 +42,10 @@ export function MassCampaign({
   initialContacts,
   setContacts,
 }: MassCampaignProps) {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
   const [subject, setSubject] = useState("");
@@ -87,42 +94,67 @@ export function MassCampaign({
       .finally(() => setTemplateLoading(false));
   }, []);
 
-  // Save or update template
-  const handleSaveTemplate = useCallback(async () => {
-    setSaveTemplateLoading(true);
-    setSaveTemplateError(null);
-    setSaveTemplateSuccess(null);
-    try {
-      const payload: any = {
-        name: templateName || subject || "Untitled",
-        subject,
-        body: htmlTemplate,
-      };
-      if (selectedTemplateId) payload._id = selectedTemplateId;
-      const res = await fetch("/api/emails/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
-      setSaveTemplateSuccess(
-        selectedTemplateId ? "Template updated" : "Template saved",
-      );
-      setSelectedTemplateId(data._id || selectedTemplateId); // select the new/updated template
-      // Refresh templates
-      setTemplateLoading(true);
-      fetch("/api/emails/templates")
-        .then((res) => res.json())
-        .then((data) => setTemplates(data.templates || []))
-        .finally(() => setTemplateLoading(false));
-    } catch (err: any) {
-      setSaveTemplateError(err.message || "Save failed");
-    } finally {
-      setSaveTemplateLoading(false);
-      setTimeout(() => setSaveTemplateSuccess(null), 2000);
-    }
-  }, [templateName, subject, htmlTemplate, selectedTemplateId]);
+  // Save or update template (update or save as new)
+  const handleSaveTemplate = useCallback(
+    async (asNew = false) => {
+      setSaveTemplateLoading(true);
+      setSaveTemplateError(null);
+      setSaveTemplateSuccess(null);
+      try {
+        // Check for duplicate template name
+        const nameToCheck = templateName || subject || "Untitled";
+        const duplicate = templates.find(
+          (tpl) =>
+            tpl.name.trim().toLowerCase() ===
+              nameToCheck.trim().toLowerCase() &&
+            (!selectedTemplateId || tpl._id !== selectedTemplateId),
+        );
+        if (duplicate && asNew) {
+          setSaveTemplateError(
+            "Template name already exists. Please choose a different name.",
+          );
+          setSaveTemplateLoading(false);
+          return;
+        }
+        if (duplicate && !asNew && !selectedTemplateId) {
+          setSaveTemplateError(
+            "Template name already exists. Please choose a different name.",
+          );
+          setSaveTemplateLoading(false);
+          return;
+        }
+        const payload: any = {
+          name: nameToCheck,
+          subject,
+          body: htmlTemplate,
+        };
+        if (selectedTemplateId && !asNew) payload._id = selectedTemplateId;
+        const res = await fetch("/api/emails/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        setSaveTemplateSuccess(
+          selectedTemplateId && !asNew ? "Template updated" : "Template saved",
+        );
+        setSelectedTemplateId(data._id || selectedTemplateId);
+        // Refresh templates
+        setTemplateLoading(true);
+        fetch("/api/emails/templates")
+          .then((res) => res.json())
+          .then((data) => setTemplates(data.templates || []))
+          .finally(() => setTemplateLoading(false));
+      } catch (err: any) {
+        setSaveTemplateError(err.message || "Save failed");
+      } finally {
+        setSaveTemplateLoading(false);
+        setTimeout(() => setSaveTemplateSuccess(null), 2000);
+      }
+    },
+    [templateName, subject, htmlTemplate, selectedTemplateId, templates],
+  );
 
   // When template is selected, load its subject/body
   useEffect(() => {
@@ -131,6 +163,7 @@ export function MassCampaign({
     if (tpl) {
       setSubject(tpl.subject);
       setHtmlTemplate(tpl.body);
+      setTemplateName(tpl.name);
     }
   }, [selectedTemplateId, templates]);
 
@@ -358,6 +391,11 @@ export function MassCampaign({
         setError("HTML template is required");
         return;
       }
+      // Require template to be saved before sending
+      if (!selectedTemplateId) {
+        setError("Please save your template before sending the campaign.");
+        return;
+      }
       // Ensure every contact has a first_name; if missing, set to 'Voter'
       const validContacts = contacts
         .filter((c) => c.email.trim())
@@ -380,6 +418,7 @@ export function MassCampaign({
           subject: subject.trim(),
           html_template: htmlTemplate,
           contacts: validContacts,
+          template_name: templateName || subject || "Untitled",
         });
         setSuccess(`Campaign sent to ${validContacts.length} contacts!`);
         // Reset form
@@ -395,10 +434,101 @@ export function MassCampaign({
         setIsSending(false);
       }
     },
-    [subject, htmlTemplate, contacts, onSend],
+    [subject, htmlTemplate, contacts, onSend, selectedTemplateId, templateName],
   );
 
   // No need for sync effects; contacts are always controlled
+
+  if (!hydrated) {
+    // Render a static skeleton matching the full MassCampaign structure for SSR
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">
+              Mass Campaign
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Send personalized emails to multiple contacts
+            </p>
+          </div>
+          <div className="text-sm text-muted-foreground">0 valid contacts</div>
+        </div>
+        {/* Template Selector Skeleton */}
+        <div className="p-4 border-b border-border">
+          <label className="block text-sm font-medium mb-1">
+            Email Template
+          </label>
+          <select className="w-full rounded border p-2 mb-2" disabled>
+            <option>-- Select a template --</option>
+          </select>
+          <div className="flex flex-col gap-2 mt-2">
+            <div className="w-full h-8 rounded border bg-muted animate-pulse" />
+            <div className="flex gap-2">
+              <div className="h-8 w-32 rounded bg-muted animate-pulse" />
+              <div className="h-8 w-32 rounded bg-muted animate-pulse" />
+            </div>
+          </div>
+        </div>
+        {/* Form Skeleton */}
+        <form className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto p-4">
+            <div className="mx-auto max-w-3xl space-y-6">
+              {/* Status Messages Skeleton */}
+              <div className="h-8 rounded bg-muted animate-pulse" />
+              {/* From Name and Email Skeleton */}
+              <div className="space-y-2">
+                <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-10 w-full rounded bg-muted animate-pulse" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-10 w-full rounded bg-muted animate-pulse" />
+              </div>
+              {/* Subject Skeleton */}
+              <div className="space-y-2">
+                <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-10 w-full rounded bg-muted animate-pulse" />
+              </div>
+              {/* HTML Template Skeleton */}
+              <div className="space-y-2">
+                <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-32 w-full rounded bg-muted animate-pulse" />
+              </div>
+              {/* Preview Skeleton */}
+              <div className="space-y-2">
+                <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-16 w-full rounded bg-muted animate-pulse" />
+              </div>
+              {/* Contacts Section Skeleton */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="h-6 w-32 rounded bg-muted animate-pulse" />
+                  <div className="flex gap-2">
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" />
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" />
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-10 rounded bg-muted animate-pulse" />
+                    <div className="w-32 h-10 rounded bg-muted animate-pulse" />
+                    <div className="h-10 w-10 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Footer Skeleton */}
+          <div className="flex items-center justify-end gap-3 border-t border-border bg-muted/30 p-4">
+            <div className="h-10 w-40 rounded bg-muted animate-pulse" />
+          </div>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -456,14 +586,24 @@ export function MassCampaign({
             onChange={(e) => setTemplateName(e.target.value)}
             disabled={saveTemplateLoading}
           />
-          <button
-            type="button"
-            className="rounded bg-primary text-primary-foreground px-3 py-1 font-medium disabled:opacity-50"
-            onClick={handleSaveTemplate}
-            disabled={saveTemplateLoading || !subject || !htmlTemplate}
-          >
-            {selectedTemplateId ? "Update Template" : "Save as Template"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1 font-medium disabled:opacity-50"
+              onClick={() => handleSaveTemplate(false)}
+              disabled={saveTemplateLoading || !subject || !htmlTemplate}
+            >
+              {selectedTemplateId ? "Update Template" : "Save as Template"}
+            </button>
+            <button
+              type="button"
+              className="rounded bg-secondary text-secondary-foreground px-3 py-1 font-medium border border-border disabled:opacity-50"
+              onClick={() => handleSaveTemplate(true)}
+              disabled={saveTemplateLoading || !subject || !htmlTemplate}
+            >
+              Save as New
+            </button>
+          </div>
           {saveTemplateError && (
             <span className="text-xs text-red-500">{saveTemplateError}</span>
           )}

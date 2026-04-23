@@ -1,15 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI!;
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/api/mongo";
+
+
 const dbName = "voter_db";
 const collectionName = "voters";
 
+declare global {
+  // eslint-disable-next-line no-var
+  var _citiesCache: string[] | undefined;
+  // eslint-disable-next-line no-var
+  var _citiesCacheTime: number | undefined;
+}
+
 export async function GET(req: NextRequest) {
-  const client = new MongoClient(uri);
   try {
-    await client.connect();
-    const db = client.db(dbName);
+    const db = await getDb(dbName);
     const collection = db.collection(collectionName);
 
     // Get city filter from query params
@@ -24,19 +30,27 @@ export async function GET(req: NextRequest) {
     const skip = parseInt(searchParams.get("skip") || "0", 10);
     const limit = parseInt(searchParams.get("limit") || "100", 10);
 
-    // Get all unique cities for filter dropdown
-    const cities = await collection.distinct("demographics.city");
+    // Cache cities in memory for 5 minutes (simple in-memory cache)
+    if (!global._citiesCache || !global._citiesCacheTime || Date.now() - global._citiesCacheTime > 5 * 60 * 1000) {
+      global._citiesCache = await collection.distinct("demographics.city");
+      global._citiesCacheTime = Date.now();
+    }
+    const cities = global._citiesCache;
 
     // Get total count for pagination
     const total = await collection.countDocuments(filter);
 
-    // Get voters for the city (or all if no city)
-    const voters = await collection.find(filter).skip(skip).limit(limit).toArray();
+
+    // Use projection to only return needed fields, including full_name for UI
+    const projection = { email: 1, first_name: 1, full_name: 1, demographics: 1 };
+    const voters = await collection
+      .find(filter, { projection })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
 
     return NextResponse.json({ voters, cities, total });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : err }, { status: 500 });
-  } finally {
-    await client.close();
   }
 }

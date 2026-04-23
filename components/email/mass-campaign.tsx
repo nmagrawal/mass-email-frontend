@@ -16,6 +16,7 @@ import { ImagePicker } from "./image-picker";
 export interface MassCampaignProps {
   onSend: (data: {
     from_email: string;
+    from_name: string;
     subject: string;
     html_template: string;
     contacts: MassCampaignContact[];
@@ -39,6 +40,7 @@ export function MassCampaign({
   setContacts,
 }: MassCampaignProps) {
   const [fromEmail, setFromEmail] = useState("");
+  const [fromName, setFromName] = useState("");
   const [subject, setSubject] = useState("");
   const [htmlTemplate, setHtmlTemplate] = useState(
     `<h2>Hello {name},</h2>\n<p>Your message here...</p>`,
@@ -136,6 +138,7 @@ export function MassCampaign({
   useEffect(() => {
     if (typeof window === "undefined") return;
     setFromEmail(localStorage.getItem("mass_fromEmail") || "");
+    setFromName(localStorage.getItem("mass_fromName") || "");
     setSubject(localStorage.getItem("mass_subject") || "");
     setHtmlTemplate(
       localStorage.getItem("mass_htmlTemplate") ||
@@ -157,6 +160,10 @@ export function MassCampaign({
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem("mass_fromEmail", fromEmail);
+  }, [fromEmail]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("mass_fromName", fromName);
   }, [fromEmail]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -340,6 +347,7 @@ export function MassCampaign({
         setError("From email is required");
         return;
       }
+      const senderName = fromName.trim() || "Chirag";
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fromEmail.trim())) {
         setError("From email is invalid");
         return;
@@ -367,6 +375,7 @@ export function MassCampaign({
       try {
         await onSend({
           from_email: fromEmail.trim(),
+          from_name: senderName,
           subject: subject.trim(),
           html_template: htmlTemplate,
           contacts: validContacts,
@@ -487,7 +496,23 @@ export function MassCampaign({
               </div>
             )}
 
-            {/* From Email */}
+            {/* From Name and Email */}
+            <div className="space-y-2">
+              <label
+                htmlFor="from-name"
+                className="text-sm font-medium text-foreground"
+              >
+                Sender Name
+              </label>
+              <input
+                id="from-name"
+                type="text"
+                value={fromName}
+                onChange={(e) => setFromName(e.target.value)}
+                placeholder="Sender Name"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
             <div className="space-y-2">
               <label
                 htmlFor="from-email"

@@ -18,14 +18,14 @@ export function VoterListPanel({
   ) => void;
 }) {
   const [cities, setCities] = useState<string[]>([]);
-  const [selectedCity, setSelectedCity] = useState<string>("");
+  const [selectedCity, setSelectedCity] = useState<string>("Mangalam");
   const [voters, setVoters] = useState<Voter[]>([]);
   const [selected, setSelected] = useState<{ [id: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState<number | null>(null);
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 300;
 
   useEffect(() => {
     const fetchCities = async () => {

@@ -253,9 +253,7 @@ export function MassCampaign({
     }
   }, [bulkInput, _setContacts]);
 
-  const validContactCount = contacts.filter(
-    (c) => c.email.trim() && c.first_name.trim(),
-  ).length;
+  const validContactCount = contacts.filter((c) => c.email.trim()).length;
 
   const handleInsertImage = useCallback((imageUrl: string) => {
     const imageHtml = `<img src="${imageUrl}" alt="Campaign image" style="max-width: 100%; height: auto;" />`;
@@ -360,13 +358,16 @@ export function MassCampaign({
         setError("HTML template is required");
         return;
       }
-      const validContacts = contacts.filter(
-        (c) => c.email.trim() && c.first_name.trim(),
-      );
+      // Ensure every contact has a first_name; if missing, set to 'Voter'
+      const validContacts = contacts
+        .filter((c) => c.email.trim())
+        .map((c) => ({
+          email: c.email.trim(),
+          first_name:
+            c.first_name && c.first_name.trim() ? c.first_name.trim() : "Voter",
+        }));
       if (validContacts.length === 0) {
-        setError(
-          "At least one valid contact (with email and name) is required",
-        );
+        setError("At least one valid contact (with email) is required");
         return;
       }
 

@@ -64,6 +64,7 @@ export function EmailClient() {
       subject: string;
       html_template: string;
       contacts: MassCampaignContact[];
+      template_name?: string;
     }) => {
       const response = await fetch("/api/mass-send", {
         method: "POST",

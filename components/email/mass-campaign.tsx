@@ -380,6 +380,12 @@ export function MassCampaign({
       setSuccess(null);
 
       // Validate
+      // Require template to be saved before sending
+      if (!selectedTemplateId) {
+        setError("Please save your template before sending the campaign.");
+        setIsSending(false);
+        return;
+      }
       if (!fromEmail.trim()) {
         setError("From email is required");
         setIsSending(false);
@@ -398,12 +404,6 @@ export function MassCampaign({
       }
       if (!htmlTemplate.trim()) {
         setError("HTML template is required");
-        setIsSending(false);
-        return;
-      }
-      // Require template to be saved before sending
-      if (!selectedTemplateId) {
-        setError("Please save your template before sending the campaign.");
         setIsSending(false);
         return;
       }
@@ -438,6 +438,8 @@ export function MassCampaign({
         setSubject("");
         setHtmlTemplate(`<h2>Hello {name},</h2>\n<p>Your message here...</p>`);
         _setContacts([{ email: "", first_name: "" }]);
+        setSelectedTemplateId("");
+        setTemplateName("");
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to send campaign",

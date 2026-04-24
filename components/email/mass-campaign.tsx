@@ -164,8 +164,14 @@ export function MassCampaign({
       setSubject(tpl.subject);
       setHtmlTemplate(tpl.body);
       setTemplateName(tpl.name);
+      if (saveTemplateError) setSaveTemplateError(null);
     }
   }, [selectedTemplateId, templates]);
+
+  // Clear saveTemplateError when subject or htmlTemplate changes
+  useEffect(() => {
+    if (saveTemplateError) setSaveTemplateError(null);
+  }, [subject, htmlTemplate]);
 
   // Hydrate state from localStorage on mount (browser only)
   useEffect(() => {
@@ -376,24 +382,29 @@ export function MassCampaign({
       // Validate
       if (!fromEmail.trim()) {
         setError("From email is required");
+        setIsSending(false);
         return;
       }
       const senderName = fromName.trim() || "Chirag";
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fromEmail.trim())) {
         setError("From email is invalid");
+        setIsSending(false);
         return;
       }
       if (!subject.trim()) {
         setError("Subject is required");
+        setIsSending(false);
         return;
       }
       if (!htmlTemplate.trim()) {
         setError("HTML template is required");
+        setIsSending(false);
         return;
       }
       // Require template to be saved before sending
       if (!selectedTemplateId) {
         setError("Please save your template before sending the campaign.");
+        setIsSending(false);
         return;
       }
       // Ensure every contact has a first_name; if missing, set to 'Voter'
@@ -406,6 +417,7 @@ export function MassCampaign({
         }));
       if (validContacts.length === 0) {
         setError("At least one valid contact (with email) is required");
+        setIsSending(false);
         return;
       }
 
@@ -583,7 +595,10 @@ export function MassCampaign({
             type="text"
             placeholder="Template name"
             value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
+            onChange={(e) => {
+              setTemplateName(e.target.value);
+              if (saveTemplateError) setSaveTemplateError(null);
+            }}
             disabled={saveTemplateLoading}
           />
           <div className="flex gap-2">

@@ -18,38 +18,77 @@ export async function GET(req: NextRequest) {
     const db = await getDb(dbName);
     const collection = db.collection(collectionName);
 
-    // Get city filter from query params
+    // Get city and mapped filter from query params
     const { searchParams } = new URL(req.url);
     const city = searchParams.get("city");
-    // Only include voters with a non-empty email field
-    const filter: Record<string, any> = city
-      ? { "demographics.city": city, email: { $exists: true, $ne: "" } }
-      : { email: { $exists: true, $ne: "" } };
-
-    // Pagination
-    const skip = parseInt(searchParams.get("skip") || "0", 10);
-    const limit = parseInt(searchParams.get("limit") || "100", 10);
-
-    // Cache cities in memory for 5 minutes (simple in-memory cache)
-    if (!global._citiesCache || !global._citiesCacheTime || Date.now() - global._citiesCacheTime > 5 * 60 * 1000) {
-      global._citiesCache = await collection.distinct("demographics.city");
-      global._citiesCacheTime = Date.now();
+    const mapped = searchParams.get("mapped");
+    // Build filter
+    const filter: Record<string, any> = {};
+    if (city) {
+      filter["demographics.city"] = city;
     }
-    const cities = global._citiesCache;
+    if (mapped === "true") {
+      filter["opgovUserId"] = { $exists: true, $ne: null };
+    }
 
-    // Get total count for pagination
-    const total = await collection.countDocuments(filter);
+    // Only return mapped voters if mapped param is set, otherwise default to previous logic
+    let voters: any[] = [];
+    if (mapped === "true") {
+      // Only mapped voters, no pagination, just required fields
+      const projection = {
+        opgovUserId: 1,
+        "demographics.name_first": 1,
+        "demographics.name_last": 1,
+        "demographics.city": 1,
+        "demographics.house_number": 1,
+        "demographics.street": 1,
+        "demographics.type": 1,
+        "demographics.state": 1,
+        "demographics.zip": 1
+      };
+      voters = await collection.find(filter, { projection }).toArray();
+      voters = voters.map((v: any) => {
+        const d = v.demographics || {};
+        const address = [d.house_number, d.street, d.type, d.city, d.state, d.zip]
+          .filter(Boolean)
+          .join(" ");
+        return {
+          voterId: v._id,
+          opgovUserId: v.opgovUserId,
+          first_name: d.name_first || "",
+          last_name: d.name_last || "",
+          city: d.city || null,
+          address,
+        };
+      });
+      return NextResponse.json({ voters });
+    } else {
+      // Default: paginated, all voters with email
+      filter.email = { $exists: true, $ne: "" };
+      // Pagination
+      const skip = parseInt(searchParams.get("skip") || "0", 10);
+      const limit = parseInt(searchParams.get("limit") || "100", 10);
 
+      // Cache cities in memory for 5 minutes (simple in-memory cache)
+      if (!global._citiesCache || !global._citiesCacheTime || Date.now() - global._citiesCacheTime > 5 * 60 * 1000) {
+        global._citiesCache = await collection.distinct("demographics.city");
+        global._citiesCacheTime = Date.now();
+      }
+      const cities = global._citiesCache;
 
-    // Use projection to only return needed fields, including full_name for UI
-    const projection = { email: 1, first_name: 1, full_name: 1, demographics: 1 };
-    const voters = await collection
-      .find(filter, { projection })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
+      // Get total count for pagination
+      const total = await collection.countDocuments(filter);
 
-    return NextResponse.json({ voters, cities, total });
+      // Use projection to only return needed fields, including full_name for UI
+      const projection = { email: 1, first_name: 1, full_name: 1, demographics: 1 };
+      voters = await collection
+        .find(filter, { projection })
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+
+      return NextResponse.json({ voters, cities, total });
+    }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : err }, { status: 500 });
   }

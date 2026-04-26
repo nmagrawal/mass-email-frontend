@@ -10,11 +10,17 @@ interface Voter {
     name_last?: string;
     full_name?: string;
     city?: string;
+    email?: string;
+    phone?: string;
+    PhoneNumber?: string;
+    phone_1?: string;
     [key: string]: any;
   };
   full_name?: string;
   public_speaker?: boolean;
   public_speaker_id?: string;
+  email?: string;
+  phone?: string;
 }
 
 const PAGE_SIZE = 50;
@@ -140,51 +146,66 @@ export default function PublicSpeakersPage() {
                 <th className="border px-2 py-1">Last Name</th>
                 <th className="border px-2 py-1">City</th>
                 <th className="border px-2 py-1">Address</th>
+                <th className="border px-2 py-1">Email</th>
+                <th className="border px-2 py-1">Phone</th>
                 <th className="border px-2 py-1">Public Speaker</th>
                 <th className="border px-2 py-1">Speaker ID</th>
               </tr>
             </thead>
             <tbody>
-              {voters.map((v) => (
-                <tr key={v._id}>
-                  <td className="border px-2 py-1">
-                    {v.demographics?.name_first ||
-                      v.demographics?.full_name ||
-                      v.full_name ||
-                      ""}
-                  </td>
-                  <td className="border px-2 py-1">
-                    {v.demographics?.name_last || ""}
-                  </td>
-                  <td className="border px-2 py-1">{v.demographics?.city}</td>
-                  <td className="border px-2 py-1">
-                    {v.demographics?.MailAddress1 ||
-                    v.demographics?.MailAddress2
-                      ? [
-                          v.demographics?.MailAddress1,
-                          v.demographics?.MailAddress2,
-                        ]
-                          .filter(Boolean)
-                          .join(", ")
-                      : [
-                          v.demographics?.house_number,
-                          v.demographics?.street,
-                          v.demographics?.type,
-                          v.demographics?.city,
-                          v.demographics?.state,
-                          v.demographics?.zip,
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                  </td>
-                  <td className="border px-2 py-1">
-                    {v.public_speaker ? "Yes" : "No"}
-                  </td>
-                  <td className="border px-2 py-1">
-                    {v.public_speaker_id || ""}
-                  </td>
-                </tr>
-              ))}
+              {voters.map((v) => {
+                // Get email from all possible keys
+                const email = v.email || v.demographics?.email || "";
+                // Get phone from all possible keys
+                const phone =
+                  v.demographics?.phone ||
+                  v.demographics?.PhoneNumber ||
+                  v.demographics?.phone_1 ||
+                  v.phone ||
+                  "";
+                return (
+                  <tr key={v._id}>
+                    <td className="border px-2 py-1">
+                      {v.demographics?.name_first ||
+                        v.demographics?.full_name ||
+                        v.full_name ||
+                        ""}
+                    </td>
+                    <td className="border px-2 py-1">
+                      {v.demographics?.name_last || ""}
+                    </td>
+                    <td className="border px-2 py-1">{v.demographics?.city}</td>
+                    <td className="border px-2 py-1">
+                      {v.demographics?.MailAddress1 ||
+                      v.demographics?.MailAddress2
+                        ? [
+                            v.demographics?.MailAddress1,
+                            v.demographics?.MailAddress2,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")
+                        : [
+                            v.demographics?.house_number,
+                            v.demographics?.street,
+                            v.demographics?.type,
+                            v.demographics?.city,
+                            v.demographics?.state,
+                            v.demographics?.zip,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                    </td>
+                    <td className="border px-2 py-1">{email}</td>
+                    <td className="border px-2 py-1">{phone}</td>
+                    <td className="border px-2 py-1">
+                      {v.public_speaker ? "Yes" : "No"}
+                    </td>
+                    <td className="border px-2 py-1">
+                      {v.public_speaker_id || ""}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div className="flex justify-between items-center mt-4">

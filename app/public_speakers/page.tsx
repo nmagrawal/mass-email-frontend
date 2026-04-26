@@ -98,7 +98,16 @@ export default function PublicSpeakersPage() {
                   </td>
                   <td className="border px-2 py-1">{v.demographics?.city}</td>
                   <td className="border px-2 py-1">
-                    {v.demographics?.address || ""}
+                    {[
+                      v.demographics?.house_number,
+                      v.demographics?.street,
+                      v.demographics?.type,
+                      v.demographics?.city,
+                      v.demographics?.state,
+                      v.demographics?.zip,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   </td>
                   <td className="border px-2 py-1">
                     {v.public_speaker ? "Yes" : "No"}

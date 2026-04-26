@@ -241,14 +241,10 @@ export function MassTextCampaign({
       }
       setIsSending(true);
       try {
-        // Replace {name} in message for each contact
-        const personalizedContacts = validContacts.map((c) => ({
-          ...c,
-          message: message.trim().replace(/\{name\}/gi, c.name || c.phone),
-        }));
+        // Send message template and contacts as-is; backend should do {name} replacement
         await onSend({
-          message: message.trim(), // keep for template_name
-          contacts: personalizedContacts,
+          message: message.trim(),
+          contacts: validContacts,
           template_name: templateName || "Untitled",
         });
         setSuccess(`Campaign sent to ${validContacts.length} contacts!`);

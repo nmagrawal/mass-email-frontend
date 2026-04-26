@@ -31,11 +31,13 @@ export async function POST(req: NextRequest) {
     if (!message || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: 'Missing message or contacts.' }, { status: 400 });
     }
-    // Send SMS to each contact (sequentially)
+    // Send SMS to each contact (sequentially), personalizing message
     for (const contact of contacts) {
       const phone = contact.phone;
       if (!phone) continue;
-      const ok = await sendSMS(phone, message);
+      // Replace {name} with contact name or phone
+      const personalized = message.replace(/\{name\}/gi, contact.name || contact.phone);
+      const ok = await sendSMS(phone, personalized);
       if (!ok) {
         return NextResponse.json({ error: `Failed to send to ${phone}` }, { status: 500 });
       }

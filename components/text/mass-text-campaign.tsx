@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Plus, Trash2, Upload } from "lucide-react";
 
 export interface MassTextContact {
   phone: string;
@@ -38,6 +39,21 @@ export function MassTextCampaign({
       ? initialContacts
       : [{ phone: "", name: "" }],
   );
+
+  // Keep contacts in sync with parent prop
+  useEffect(() => {
+    if (
+      initialContacts &&
+      (initialContacts.length !== contacts.length ||
+        initialContacts.some(
+          (c, i) =>
+            c.phone !== contacts[i]?.phone || c.name !== contacts[i]?.name,
+        ))
+    ) {
+      _setContactsState(initialContacts);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialContacts]);
   const _setContacts = (newContacts: MassTextContact[]) => {
     _setContactsState(newContacts);
     if (typeof window !== "undefined") {
@@ -338,7 +354,12 @@ export function MassTextCampaign({
         <div>
           <label className="block text-sm font-medium mb-1">Contacts</label>
           <div className="flex gap-2 mb-2">
-            <Button type="button" onClick={() => setShowBulkInput((v) => !v)}>
+            <Button
+              type="button"
+              onClick={() => setShowBulkInput((v) => !v)}
+              size="sm"
+            >
+              <Upload className="h-3 w-3" />
               {showBulkInput ? "Hide Bulk Input" : "Bulk Input"}
             </Button>
             <Button
@@ -346,8 +367,24 @@ export function MassTextCampaign({
               onClick={() =>
                 _setContacts([...contacts, { phone: "", name: "" }])
               }
+              size="sm"
             >
               Add Contact
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                _setContacts([]);
+                if (typeof window !== "undefined") {
+                  localStorage.removeItem("massTextContacts");
+                }
+              }}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-destructive border border-destructive bg-transparent hover:bg-destructive/10"
+              size="sm"
+              title="Delete all recipients"
+            >
+              <Trash2 className="h-3 w-3" />
+              Remove All
             </Button>
           </div>
           {showBulkInput && (
@@ -407,19 +444,7 @@ export function MassTextCampaign({
         <Button type="submit" disabled={isSending || validContactCount === 0}>
           {isSending ? "Sending..." : `Send Texts (${validContactCount})`}
         </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={() => {
-            _setContacts([]);
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("massTextContacts");
-            }
-          }}
-          disabled={contacts.length === 0}
-        >
-          Remove All
-        </Button>
+        {/* Remove All button moved above for UI consistency */}
       </form>
     </div>
   );

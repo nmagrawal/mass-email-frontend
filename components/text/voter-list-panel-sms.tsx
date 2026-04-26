@@ -101,9 +101,10 @@ export function VoterListPanelSMS({
         return {
           phone,
           name: v.full_name.split(" ")[0] || "",
+          full_name: v.full_name,
         };
       })
-      .filter(Boolean) as { phone: string; name: string }[];
+      .filter(Boolean) as { phone: string; name: string; full_name: string }[];
     if (contacts.length > 0) {
       onAddToTextList(contacts);
     }

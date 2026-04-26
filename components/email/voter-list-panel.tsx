@@ -94,6 +94,7 @@ export function VoterListPanel({
         email: v.demographics?.email || v.email || "",
         first_name:
           v.demographics?.name_first || v.full_name.split(" ")[0] || "",
+        full_name: v.full_name,
       }))
       .filter((c) => c.email);
     onAddToEmailList(contacts);

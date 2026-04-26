@@ -32,13 +32,38 @@ export function MassTextCampaign({
   setContacts,
 }: MassTextCampaignProps) {
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-
-  const contacts =
+  // Always use default value for SSR, update from localStorage after hydration
+  const [contacts, _setContactsState] = useState<MassTextContact[]>(
     initialContacts && initialContacts.length > 0
       ? initialContacts
-      : [{ phone: "", name: "" }];
-  const _setContacts = setContacts || (() => {});
+      : [{ phone: "", name: "" }],
+  );
+  const _setContacts = (newContacts: MassTextContact[]) => {
+    _setContactsState(newContacts);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("massTextContacts", JSON.stringify(newContacts));
+    }
+    if (setContacts) setContacts(newContacts);
+  };
+
+  // Hydration: after mount, update contacts from localStorage if available
+  useEffect(() => {
+    setHydrated(true);
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("massTextContacts");
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            _setContactsState(parsed);
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [bulkInput, setBulkInput] = useState("");
   const [showBulkInput, setShowBulkInput] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -381,6 +406,19 @@ export function MassTextCampaign({
         </div>
         <Button type="submit" disabled={isSending || validContactCount === 0}>
           {isSending ? "Sending..." : `Send Texts (${validContactCount})`}
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => {
+            _setContacts([]);
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("massTextContacts");
+            }
+          }}
+          disabled={contacts.length === 0}
+        >
+          Remove All
         </Button>
       </form>
     </div>

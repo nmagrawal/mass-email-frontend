@@ -50,19 +50,30 @@ export async function POST(req: NextRequest) {
       if (processed % 10000 === 0) {
         console.log(`Processed ${processed} voters...`);
       }
-      const first = voter.demographics?.name_first || "";
-      const last = voter.demographics?.name_last || "";
-      const city = voter.demographics?.city || "";
+      // Try mapped fields first
+      let first = voter.demographics?.name_first || "";
+      let last = voter.demographics?.name_last || "";
+      let city = voter.demographics?.city || "";
+      let fullName = `${first} ${last}`.trim();
+      let unmapped = false;
+      // If mapped fields are missing, try unmapped/alternate fields
       if (!first.trim() || !last.trim() || !city.trim()) {
-        skipped.push({
-          voterId: voter._id,
-          first_name: first,
-          last_name: last,
-          city,
-        });
-        continue;
+        // Try full_name and alternate city fields
+        fullName = voter.demographics?.full_name || voter.full_name || "";
+        city = voter.demographics?.ResidenceCity || voter.demographics?.MailCity || voter.demographics?.city || "";
+        if (fullName && city) {
+          unmapped = true;
+        } else {
+          skipped.push({
+            voterId: voter._id,
+            first_name: first,
+            last_name: last,
+            full_name: fullName,
+            city,
+          });
+          continue;
+        }
       }
-      const fullName = `${first} ${last}`.trim().toLowerCase();
       const cityLower = city.toLowerCase();
       // Efficient lookup: find all orgs that contain the city name as a substring
       let possibleSpeakers: Array<{ name: string; _id: any }> = [];
@@ -72,7 +83,8 @@ export async function POST(req: NextRequest) {
         }
       }
       // Now, check if any of these speakers' names are present in the voter's full name
-      const speaker = possibleSpeakers.find(s => fullName.includes(s.name));
+      const fullNameLower = fullName.trim().toLowerCase();
+      const speaker = possibleSpeakers.find(s => fullNameLower.includes(s.name));
       if (speaker) {
         await mainDb.collection("voters").updateOne(
           { _id: voter._id },
@@ -89,7 +101,9 @@ export async function POST(req: NextRequest) {
           public_speaker_id: speaker._id,
           first_name: first,
           last_name: last,
+          full_name: fullName,
           city,
+          unmapped,
         });
       } else {
         // No need to unset again, already done above

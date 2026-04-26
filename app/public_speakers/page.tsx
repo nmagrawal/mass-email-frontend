@@ -82,6 +82,7 @@ export default function PublicSpeakersPage() {
                 <th className="border px-2 py-1">First Name</th>
                 <th className="border px-2 py-1">Last Name</th>
                 <th className="border px-2 py-1">City</th>
+                <th className="border px-2 py-1">Address</th>
                 <th className="border px-2 py-1">Public Speaker</th>
                 <th className="border px-2 py-1">Speaker ID</th>
               </tr>
@@ -96,6 +97,9 @@ export default function PublicSpeakersPage() {
                     {v.demographics?.name_last}
                   </td>
                   <td className="border px-2 py-1">{v.demographics?.city}</td>
+                  <td className="border px-2 py-1">
+                    {v.demographics?.address || ""}
+                  </td>
                   <td className="border px-2 py-1">
                     {v.public_speaker ? "Yes" : "No"}
                   </td>

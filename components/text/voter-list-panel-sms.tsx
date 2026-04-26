@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useState } from "react";
 
 interface Voter {
@@ -5,17 +6,15 @@ interface Voter {
   full_name: string;
   demographics: {
     city: string;
+    phone?: string;
     [key: string]: any;
   };
   [key: string]: any;
 }
-
-export function VoterListPanel({
-  onAddToEmailList,
+export function VoterListPanelSMS({
+  onAddToTextList,
 }: {
-  onAddToEmailList?: (
-    contacts: { email: string; first_name: string }[],
-  ) => void;
+  onAddToTextList?: (contacts: { phone: string; name: string }[]) => void;
 }) {
   const [search, setSearch] = useState("");
   const [cities, setCities] = useState<string[]>([]);
@@ -86,17 +85,28 @@ export function VoterListPanel({
     setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleAddToEmailList = () => {
-    if (!onAddToEmailList) return;
-    const selectedVoters = voters.filter((v) => selected[v._id.$oid || v._id]);
-    const contacts = selectedVoters
-      .map((v) => ({
-        email: v.demographics?.email || v.email || "",
-        first_name:
-          v.demographics?.name_first || v.full_name.split(" ")[0] || "",
-      }))
-      .filter((c) => c.email);
-    onAddToEmailList(contacts);
+  const handleAddToTextList = () => {
+    if (!onAddToTextList) return;
+    const contacts = voters
+      .map((v) => {
+        const id = v._id.$oid || v._id;
+        if (!selected[id]) return null;
+        const phone =
+          v.demographics?.phone ||
+          v.demographics?.PhoneNumber ||
+          v.demographics?.phone_1 ||
+          v.phone ||
+          "";
+        if (!phone) return null;
+        return {
+          phone,
+          name: v.full_name.split(" ")[0] || "",
+        };
+      })
+      .filter(Boolean) as { phone: string; name: string }[];
+    if (contacts.length > 0) {
+      onAddToTextList(contacts);
+    }
   };
 
   return (
@@ -129,11 +139,11 @@ export function VoterListPanel({
           className="mt-2 w-full rounded bg-primary text-primary-foreground py-2 font-medium disabled:opacity-50"
           disabled={
             Object.values(selected).filter(Boolean).length === 0 ||
-            !onAddToEmailList
+            !onAddToTextList
           }
-          onClick={handleAddToEmailList}
+          onClick={handleAddToTextList}
         >
-          Add to Email List
+          Add to Text List
         </button>
         {/* Pagination Controls */}
         <div className="flex items-center justify-between mt-4">
@@ -180,6 +190,7 @@ export function VoterListPanel({
                 </th>
                 <th className="border-b p-2 text-left">Name</th>
                 <th className="border-b p-2 text-left">City</th>
+                <th className="border-b p-2 text-left">Contact Number</th>
                 <th className="border-b p-2 text-left">Last Template Sent</th>
               </tr>
             </thead>
@@ -190,26 +201,36 @@ export function VoterListPanel({
                 )
                 .map((voter) => {
                   const id = voter._id.$oid || voter._id;
-                  return (
-                    <tr key={id}>
-                      <td className="border-b p-2">
-                        <input
-                          type="checkbox"
-                          checked={!!selected[id]}
-                          onChange={() => handleCheckbox(id)}
-                          aria-label={`Select ${voter.full_name}`}
-                        />
-                      </td>
-                      <td className="border-b p-2">{voter.full_name}</td>
-                      <td className="border-b p-2">
-                        {voter.demographics.city}
-                      </td>
-                      <td className="border-b p-2">
-                        {voter.last_template_sent || "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
+                  const contactNumber =
+                    voter.demographics?.phone ||
+                    voter.demographics?.PhoneNumber ||
+                    voter.demographics?.phone_1 ||
+                    voter.phone ||
+                    "";
+                  return { voter, id, contactNumber };
+                })
+                .filter(
+                  ({ contactNumber }) =>
+                    !!contactNumber && contactNumber !== "-",
+                )
+                .map(({ voter, id, contactNumber }) => (
+                  <tr key={id}>
+                    <td className="border-b p-2">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[id]}
+                        onChange={() => handleCheckbox(id)}
+                        aria-label={`Select ${voter.full_name}`}
+                      />
+                    </td>
+                    <td className="border-b p-2">{voter.full_name}</td>
+                    <td className="border-b p-2">{voter.demographics.city}</td>
+                    <td className="border-b p-2">{contactNumber}</td>
+                    <td className="border-b p-2">
+                      {voter.last_template_sent || "-"}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         )}

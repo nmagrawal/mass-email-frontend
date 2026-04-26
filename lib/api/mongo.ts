@@ -17,7 +17,21 @@ if (!global._mongoClientPromise) {
 }
 clientPromise = global._mongoClientPromise;
 
+
 export async function getDb(dbName: string): Promise<Db> {
   const client = await clientPromise;
   return client.db(dbName);
+}
+
+// Collection for SMS/text templates
+import { Collection, ObjectId } from "mongodb";
+export interface TextTemplateDoc {
+  _id?: ObjectId;
+  name: string;
+  body: string;
+}
+
+export async function getTextTemplatesCollection(): Promise<Collection<TextTemplateDoc>> {
+  const db = await getDb(process.env.MONGODB_DB || "opgov");
+  return db.collection<TextTemplateDoc>("text_templates");
 }

@@ -1,0 +1,388 @@
+"use client";
+import React, { useState, useEffect, useCallback } from "react";
+import { Button } from "../ui/button";
+import { Textarea } from "../ui/textarea";
+
+export interface MassTextContact {
+  phone: string;
+  name?: string;
+}
+
+export interface MassTextTemplate {
+  _id?: string;
+  name: string;
+  body: string;
+}
+
+export interface MassTextCampaignSendPayload {
+  message: string;
+  contacts: MassTextContact[];
+  template_name?: string;
+}
+
+export interface MassTextCampaignProps {
+  onSend: (data: MassTextCampaignSendPayload) => Promise<void>;
+  initialContacts?: MassTextContact[];
+  setContacts?: (contacts: MassTextContact[]) => void;
+}
+
+export function MassTextCampaign({
+  onSend,
+  initialContacts,
+  setContacts,
+}: MassTextCampaignProps) {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  const contacts =
+    initialContacts && initialContacts.length > 0
+      ? initialContacts
+      : [{ phone: "", name: "" }];
+  const _setContacts = setContacts || (() => {});
+  const [bulkInput, setBulkInput] = useState("");
+  const [showBulkInput, setShowBulkInput] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [message, setMessage] = useState("Hi {name},");
+  const [templates, setTemplates] = useState<MassTextTemplate[]>([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [templateName, setTemplateName] = useState("");
+  const [saveTemplateLoading, setSaveTemplateLoading] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(
+    null,
+  );
+  const [saveTemplateSuccess, setSaveTemplateSuccess] = useState<string | null>(
+    null,
+  );
+
+  // Fetch templates on mount
+  useEffect(() => {
+    setTemplateLoading(true);
+    fetch("/api/texts/templates")
+      .then((res) => res.json())
+      .then((data) => {
+        setTemplates(data.templates || []);
+        setTemplateError(null);
+      })
+      .catch(() => setTemplateError("Failed to load templates"))
+      .finally(() => setTemplateLoading(false));
+  }, []);
+
+  // Save or update template
+  const handleSaveTemplate = useCallback(
+    async (asNew = false) => {
+      setSaveTemplateLoading(true);
+      setSaveTemplateError(null);
+      setSaveTemplateSuccess(null);
+      try {
+        const nameToCheck = templateName || "Untitled";
+        const duplicate = templates.find(
+          (tpl) =>
+            tpl.name.trim().toLowerCase() ===
+              nameToCheck.trim().toLowerCase() &&
+            (!selectedTemplateId || tpl._id !== selectedTemplateId),
+        );
+        if (duplicate && asNew) {
+          setSaveTemplateError(
+            "Template name already exists. Please choose a different name.",
+          );
+          setSaveTemplateLoading(false);
+          return;
+        }
+        if (duplicate && !asNew && !selectedTemplateId) {
+          setSaveTemplateError(
+            "Template name already exists. Please choose a different name.",
+          );
+          setSaveTemplateLoading(false);
+          return;
+        }
+        const payload: any = {
+          name: nameToCheck,
+          body: message,
+        };
+        if (selectedTemplateId && !asNew) payload._id = selectedTemplateId;
+        const res = await fetch("/api/texts/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        setSaveTemplateSuccess(
+          selectedTemplateId && !asNew ? "Template updated" : "Template saved",
+        );
+        setSelectedTemplateId(data._id || selectedTemplateId);
+        setTemplateLoading(true);
+        fetch("/api/texts/templates")
+          .then((res) => res.json())
+          .then((data) => setTemplates(data.templates || []))
+          .finally(() => setTemplateLoading(false));
+      } catch (err: any) {
+        setSaveTemplateError(err.message || "Save failed");
+      } finally {
+        setSaveTemplateLoading(false);
+        setTimeout(() => setSaveTemplateSuccess(null), 2000);
+      }
+    },
+    [templateName, message, selectedTemplateId, templates],
+  );
+
+  // When template is selected, load its body
+  useEffect(() => {
+    if (!selectedTemplateId) return;
+    const tpl = templates.find((t) => t._id === selectedTemplateId);
+    if (tpl) {
+      setMessage(tpl.body);
+      setTemplateName(tpl.name);
+      if (saveTemplateError) setSaveTemplateError(null);
+    }
+  }, [selectedTemplateId, templates]);
+
+  // Bulk input parsing
+  const parseBulkInput = useCallback(() => {
+    const lines = bulkInput.trim().split("\n");
+    const newContacts: MassTextContact[] = [];
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      let phone = "";
+      let name = "";
+      if (trimmedLine.includes(",")) {
+        const parts = trimmedLine.split(",");
+        phone = parts[0].trim();
+        name = parts[1]?.trim() || "";
+      } else {
+        phone = trimmedLine;
+      }
+      if (phone) {
+        newContacts.push({ phone, name: name || phone });
+      }
+    }
+    if (newContacts.length > 0) {
+      _setContacts(newContacts);
+      setBulkInput("");
+      setShowBulkInput(false);
+      setSuccess(`Imported ${newContacts.length} contacts`);
+      setTimeout(() => setSuccess(null), 3000);
+    } else {
+      setError(
+        "No valid contacts found. Use format: phone,name (one per line)",
+      );
+      setTimeout(() => setError(null), 5000);
+    }
+  }, [bulkInput, _setContacts]);
+
+  const validContactCount = contacts.filter((c) => c.phone.trim()).length;
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      setSuccess(null);
+      if (!selectedTemplateId) {
+        setError("Please save your template before sending the campaign.");
+        setIsSending(false);
+        return;
+      }
+      if (!message.trim()) {
+        setError("Message is required");
+        setIsSending(false);
+        return;
+      }
+      const validContacts = contacts.filter((c) => c.phone.trim());
+      if (validContacts.length === 0) {
+        setError("At least one valid contact (with phone) is required");
+        setIsSending(false);
+        return;
+      }
+      setIsSending(true);
+      try {
+        await onSend({
+          message: message.trim(),
+          contacts: validContacts,
+          template_name: templateName || "Untitled",
+        });
+        setSuccess(`Campaign sent to ${validContacts.length} contacts!`);
+        setMessage("");
+        _setContacts([{ phone: "", name: "" }]);
+        setSelectedTemplateId("");
+        setTemplateName("");
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to send campaign",
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [message, contacts, onSend, selectedTemplateId, templateName],
+  );
+
+  if (!hydrated) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="border-b pb-4">
+        <h2 className="text-lg font-semibold">Mass Text Campaign</h2>
+        <p className="text-sm text-muted-foreground">
+          Send SMS to multiple contacts
+        </p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Message Template
+        </label>
+        {templateLoading ? (
+          <span className="text-xs text-muted-foreground">
+            Loading templates...
+          </span>
+        ) : templateError ? (
+          <span className="text-xs text-red-500">{templateError}</span>
+        ) : (
+          <select
+            className="w-full rounded border p-2 mb-2"
+            value={selectedTemplateId}
+            onChange={(e) => {
+              setSelectedTemplateId(e.target.value);
+              const tpl = templates.find((t) => t._id === e.target.value);
+              setTemplateName(tpl?.name || "");
+            }}
+          >
+            <option value="">-- Select a template --</option>
+            {templates.map((tpl) => (
+              <option key={tpl._id} value={tpl._id}>
+                {tpl.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="flex flex-col gap-2 mt-2">
+          <input
+            className="w-full rounded border p-2"
+            type="text"
+            placeholder="Template name"
+            value={templateName}
+            onChange={(e) => {
+              setTemplateName(e.target.value);
+              if (saveTemplateError) setSaveTemplateError(null);
+            }}
+            disabled={saveTemplateLoading}
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded bg-primary text-primary-foreground px-3 py-1 font-medium disabled:opacity-50"
+              onClick={() => handleSaveTemplate(false)}
+              disabled={saveTemplateLoading || !message}
+            >
+              {selectedTemplateId ? "Update Template" : "Save as Template"}
+            </button>
+            <button
+              type="button"
+              className="rounded bg-secondary text-secondary-foreground px-3 py-1 font-medium border border-border disabled:opacity-50"
+              onClick={() => handleSaveTemplate(true)}
+              disabled={saveTemplateLoading || !message}
+            >
+              Save as New
+            </button>
+          </div>
+          {saveTemplateError && (
+            <span className="text-xs text-red-500">{saveTemplateError}</span>
+          )}
+          {saveTemplateSuccess && (
+            <span className="text-xs text-green-600">
+              {saveTemplateSuccess}
+            </span>
+          )}
+        </div>
+      </div>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {error && <div className="text-red-500 text-sm">{error}</div>}
+        {success && <div className="text-green-600 text-sm">{success}</div>}
+        <Textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Enter your message. Use {name} for personalization."
+          rows={4}
+        />
+        <div>
+          <label className="block text-sm font-medium mb-1">Contacts</label>
+          <div className="flex gap-2 mb-2">
+            <Button type="button" onClick={() => setShowBulkInput((v) => !v)}>
+              {showBulkInput ? "Hide Bulk Input" : "Bulk Input"}
+            </Button>
+            <Button
+              type="button"
+              onClick={() =>
+                _setContacts([...contacts, { phone: "", name: "" }])
+              }
+            >
+              Add Contact
+            </Button>
+          </div>
+          {showBulkInput && (
+            <div className="mb-2">
+              <Textarea
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                placeholder="One per line: phone,name"
+                rows={3}
+              />
+              <Button type="button" onClick={parseBulkInput} className="mt-1">
+                Import
+              </Button>
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            {contacts.map((contact, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <input
+                  className="rounded border p-2 flex-1"
+                  type="text"
+                  placeholder="Phone number"
+                  value={contact.phone}
+                  onChange={(e) =>
+                    _setContacts(
+                      contacts.map((c, j) =>
+                        j === i ? { ...c, phone: e.target.value } : c,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  className="rounded border p-2 flex-1"
+                  type="text"
+                  placeholder="Name (optional)"
+                  value={contact.name || ""}
+                  onChange={(e) =>
+                    _setContacts(
+                      contacts.map((c, j) =>
+                        j === i ? { ...c, name: e.target.value } : c,
+                      ),
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  onClick={() =>
+                    _setContacts(contacts.filter((_, j) => j !== i))
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <Button type="submit" disabled={isSending || validContactCount === 0}>
+          {isSending ? "Sending..." : `Send Texts (${validContactCount})`}
+        </Button>
+      </form>
+    </div>
+  );
+}

@@ -6,9 +6,11 @@ interface Voter {
   demographics: {
     name_first?: string;
     name_last?: string;
+    full_name?: string;
     city?: string;
     [key: string]: any;
   };
+  full_name?: string;
   public_speaker?: boolean;
   public_speaker_id?: string;
 }
@@ -91,10 +93,13 @@ export default function PublicSpeakersPage() {
               {voters.map((v) => (
                 <tr key={v._id}>
                   <td className="border px-2 py-1">
-                    {v.demographics?.name_first}
+                    {v.demographics?.name_first ||
+                      v.demographics?.full_name ||
+                      v.full_name ||
+                      ""}
                   </td>
                   <td className="border px-2 py-1">
-                    {v.demographics?.name_last}
+                    {v.demographics?.name_last || ""}
                   </td>
                   <td className="border px-2 py-1">{v.demographics?.city}</td>
                   <td className="border px-2 py-1">

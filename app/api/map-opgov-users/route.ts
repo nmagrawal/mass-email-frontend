@@ -44,18 +44,31 @@ export async function POST(req: NextRequest) {
       if (processed % 10000 === 0) {
         console.log(`Processed ${processed} voters...`);
       }
-      const firstName = voter.demographics?.name_first || "";
-      const lastName = voter.demographics?.name_last || "";
-      const city = voter.demographics?.city || null;
-      if (!firstName.trim() || !lastName.trim()) {
-        // Skip mapping if first or last name is missing
-        skipped.push({
-          voterId: voter._id,
-          first_name: firstName,
-          last_name: lastName,
-          city,
-        });
-        continue;
+      let firstName = voter.demographics?.name_first || "";
+      let lastName = voter.demographics?.name_last || "";
+      let city = voter.demographics?.city || "";
+      let unmapped = false;
+      // If mapped fields are missing, try unmapped/alternate fields
+      if (!firstName.trim() || !lastName.trim() || !city.trim()) {
+        // Try full_name (demographics or root) and alternate city fields
+        const fullName = voter.demographics?.full_name || voter.full_name || "";
+        city = voter.demographics?.ResidenceCity || voter.demographics?.MailCity || voter.demographics?.city || "";
+        if (fullName && city) {
+          unmapped = true;
+          // Try to split full_name into first and last (best effort)
+          const parts = fullName.trim().split(" ");
+          firstName = parts[0] || "";
+          lastName = parts.slice(1).join(" ") || "";
+        } else {
+          skipped.push({
+            voterId: voter._id,
+            first_name: firstName,
+            last_name: lastName,
+            full_name: fullName,
+            city,
+          });
+          continue;
+        }
       }
       const key = `${firstName.trim().toLowerCase()}|${lastName.trim().toLowerCase()}`;
       const match = userMap.get(key);
@@ -76,7 +89,9 @@ export async function POST(req: NextRequest) {
           opgovUserId: match._id,
           first_name: firstName,
           last_name: lastName,
+          full_name: unmapped ? (voter.demographics?.full_name || voter.full_name || "") : undefined,
           city,
+          unmapped,
         });
       } else {
         // No need to unset again, already done above

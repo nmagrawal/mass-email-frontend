@@ -7,6 +7,7 @@ interface Voter {
   opgovUserId: string;
   first_name: string;
   last_name: string;
+  full_name?: string;
   city: string | null;
   address: string;
 }
@@ -77,8 +78,15 @@ export default function VotersPage() {
           <tbody>
             {voters.map((v) => (
               <tr key={v.voterId}>
-                <td className="border px-2 py-1">{v.first_name}</td>
-                <td className="border px-2 py-1">{v.last_name}</td>
+                <td className="border px-2 py-1">
+                  {v.first_name || v.full_name || ""}
+                </td>
+                <td className="border px-2 py-1">
+                  {v.last_name ||
+                    (v.full_name
+                      ? v.full_name.split(" ").slice(1).join(" ")
+                      : "")}
+                </td>
                 <td className="border px-2 py-1">{v.city}</td>
                 <td className="border px-2 py-1">{v.address}</td>
                 <td className="border px-2 py-1">{v.voterId}</td>

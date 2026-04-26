@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 
 interface Voter {
   _id: string;
@@ -24,6 +26,8 @@ export default function PublicSpeakersPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     fetchCities();
@@ -32,6 +36,32 @@ export default function PublicSpeakersPage() {
   useEffect(() => {
     setPage(0); // Reset to first page when city changes
   }, [city]);
+
+  // Search handler: fetch all matching public speakers in city
+  async function handleSearch() {
+    if (!search.trim()) return;
+    setIsSearching(true);
+    setLoading(true);
+    let url = `/api/public-speakers?search=${encodeURIComponent(search.trim())}`;
+    if (city) {
+      url += `&city=${encodeURIComponent(city)}`;
+    }
+    // Fetch a large number (up to 2000) for search
+    url += `&limit=2000&skip=0`;
+    const res = await fetch(url);
+    const data = await res.json();
+    setVoters((data.voters || []).filter((v: Voter) => v.public_speaker));
+    setTotal(data.voters ? data.voters.length : 0);
+    setLoading(false);
+  }
+
+  // Reset search when search box is cleared
+  useEffect(() => {
+    if (!search.trim() && isSearching) {
+      setIsSearching(false);
+      setPage(0);
+    }
+  }, [search, isSearching]);
 
   useEffect(() => {
     fetchVoters();
@@ -59,20 +89,45 @@ export default function PublicSpeakersPage() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-4">Mapped Public Speakers</h1>
-      <div className="mb-4">
-        <label className="mr-2 font-medium">Filter by City:</label>
-        <select
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          className="border px-2 py-1 rounded"
-        >
-          <option value="">All Cities</option>
-          {cities.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+      <div className="mb-4 flex gap-2 items-end">
+        <div>
+          <label className="mr-2 font-medium">Filter by City:</label>
+          <select
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            className="border px-2 py-1 rounded"
+          >
+            <option value="">All Cities</option>
+            {cities.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="relative flex-1">
+          <input
+            className="w-full rounded border p-2 pr-10"
+            type="text"
+            placeholder="Search by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
+          />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            className="absolute right-1 top-1/2 -translate-y-1/2"
+            onClick={handleSearch}
+            aria-label="Search"
+            disabled={loading || !search.trim()}
+          >
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
       {loading ? (
         <div>Loading...</div>

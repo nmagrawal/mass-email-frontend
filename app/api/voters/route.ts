@@ -18,10 +18,11 @@ export async function GET(req: NextRequest) {
     const db = await getDb(dbName);
     const collection = db.collection(collectionName);
 
-    // Get city and mapped filter from query params
+    // Get city, mapped, and search filter from query params
     const { searchParams } = new URL(req.url);
     const city = searchParams.get("city");
     const mapped = searchParams.get("mapped");
+    const search = searchParams.get("search");
     // Build filter
     const filter: Record<string, any> = {};
     if (city) {
@@ -29,6 +30,14 @@ export async function GET(req: NextRequest) {
     }
     if (mapped === "true") {
       filter["opgovUserId"] = { $exists: true, $ne: null };
+    }
+    // Add search by full_name (case-insensitive, partial match)
+      if (search) {
+        filter["$or"] = [
+          { full_name: { $regex: search, $options: "i" } },
+          { first_name: { $regex: search, $options: "i" } },
+          { last_name: { $regex: search, $options: "i" } }
+        ];
     }
 
     // Only return mapped voters if mapped param is set, otherwise default to previous logic

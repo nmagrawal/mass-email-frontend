@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Button } from "../ui/button";
+import { Search } from "lucide-react";
 
 interface Voter {
   _id: any;
@@ -18,6 +20,7 @@ export function VoterListPanel({
   ) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [cities, setCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>("Mangalam");
   const [voters, setVoters] = useState<Voter[]>([]);
@@ -49,6 +52,7 @@ export function VoterListPanel({
   }, []);
 
   useEffect(() => {
+    if (isSearching) return; // Don't auto-fetch when searching
     const skip = (page - 1) * PAGE_SIZE;
     setLoading(true);
     setError(null);
@@ -66,7 +70,40 @@ export function VoterListPanel({
       .catch(() => setError("Failed to load voters"))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCity, page]);
+  }, [selectedCity, page, isSearching]);
+
+  // Search handler: fetch all matching voters in city
+  const handleSearch = async () => {
+    if (!search.trim()) return;
+    setIsSearching(true);
+    setLoading(true);
+    setError(null);
+    let url = `/api/voters?search=${encodeURIComponent(search.trim())}`;
+    if (selectedCity) {
+      url += `&city=${encodeURIComponent(selectedCity)}`;
+    }
+    // Fetch a large number (up to 2000) for search
+    url += `&limit=2000&skip=0`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      setVoters(data.voters || []);
+      setTotal(data.voters ? data.voters.length : 0);
+      setSelected({});
+    } catch {
+      setError("Failed to search voters");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset search when search box is cleared
+  useEffect(() => {
+    if (!search.trim() && isSearching) {
+      setIsSearching(false);
+      setPage(1);
+    }
+  }, [search, isSearching]);
 
   const allSelected =
     voters.length > 0 && voters.every((v) => selected[v._id.$oid || v._id]);
@@ -119,13 +156,29 @@ export function VoterListPanel({
             </option>
           ))}
         </select>
-        <input
-          className="w-full rounded border p-2 mb-2"
-          type="text"
-          placeholder="Search by name..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="relative mb-2">
+          <input
+            className="w-full rounded border p-2 pr-10"
+            type="text"
+            placeholder="Search by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
+          />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            className="absolute right-1 top-1/2 -translate-y-1/2"
+            onClick={handleSearch}
+            aria-label="Search"
+            disabled={loading || !search.trim()}
+          >
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
         <button
           className="mt-2 w-full rounded bg-primary text-primary-foreground py-2 font-medium disabled:opacity-50"
           disabled={
@@ -137,30 +190,32 @@ export function VoterListPanel({
           Add to Email List
         </button>
         {/* Pagination Controls */}
-        <div className="flex items-center justify-between mt-4">
-          <button
-            className="px-3 py-1 rounded border disabled:opacity-50"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1 || loading}
-          >
-            Previous
-          </button>
-          <span>
-            Page {page}
-            {total !== null && <> of {Math.ceil(total / PAGE_SIZE)}</>}
-          </span>
-          <button
-            className="px-3 py-1 rounded border disabled:opacity-50"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={
-              loading ||
-              (total !== null && page >= Math.ceil(total / PAGE_SIZE)) ||
-              voters.length < PAGE_SIZE
-            }
-          >
-            Next
-          </button>
-        </div>
+        {!isSearching && (
+          <div className="flex items-center justify-between mt-4">
+            <button
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1 || loading}
+            >
+              Previous
+            </button>
+            <span>
+              Page {page}
+              {total !== null && <> of {Math.ceil(total / PAGE_SIZE)}</>}
+            </span>
+            <button
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={
+                loading ||
+                (total !== null && page >= Math.ceil(total / PAGE_SIZE)) ||
+                voters.length < PAGE_SIZE
+              }
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-auto p-4">
         {loading ? (

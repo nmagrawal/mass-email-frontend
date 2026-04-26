@@ -16,11 +16,19 @@ export async function GET(req: NextRequest) {
     const mainDb = await getDb("voter_db");
     const { searchParams } = new URL(req.url);
     const city = searchParams.get("city");
+    const search = searchParams.get("search");
     const skip = parseInt(searchParams.get("skip") || "0", 10);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const filter: any = { public_speaker: true };
     if (city) {
       filter["demographics.city"] = city;
+    }
+    if (search) {
+      filter["$or"] = [
+        { "demographics.full_name": { $regex: search, $options: "i" } },
+        { "demographics.name_first": { $regex: search, $options: "i" } },
+        { "demographics.name_last": { $regex: search, $options: "i" } }
+      ];
     }
     const total = await mainDb.collection("voters").countDocuments(filter);
     const voters = await mainDb.collection("voters")

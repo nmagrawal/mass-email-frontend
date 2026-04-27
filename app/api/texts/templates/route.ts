@@ -22,9 +22,18 @@ export async function POST(req: NextRequest) {
     }
     const collection = await getTextTemplatesCollection();
     if (_id) {
+      // Validate ObjectId
+      let objectId: ObjectId | null = null;
+      if (typeof _id === 'string' && ObjectId.isValid(_id)) {
+        objectId = new ObjectId(_id);
+      } else if (_id instanceof ObjectId) {
+        objectId = _id;
+      } else {
+        return NextResponse.json({ error: 'Invalid template ID' }, { status: 400 });
+      }
       // Update existing
       const result: any = await collection.findOneAndUpdate(
-        { _id: typeof _id === 'string' ? new ObjectId(_id) : _id },
+        { _id: objectId },
         { $set: { name, body } },
         { returnDocument: 'after', upsert: false }
       );

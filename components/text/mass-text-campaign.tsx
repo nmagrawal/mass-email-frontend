@@ -19,6 +19,7 @@ export interface MassTextCampaignSendPayload {
   message: string;
   contacts: MassTextContact[];
   template_name?: string;
+  imageUrl?: string; // For MMS image support
 }
 
 export interface MassTextCampaignProps {
@@ -85,7 +86,43 @@ export function MassTextCampaign({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [message, setMessage] = useState("Hi {name},");
+  const [message, setMessage] = useState("Hi {name},\n\n");
+  // Image upload state
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  // Handle image file selection and preview
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImageUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) {
+      setImageFile(null);
+      setImagePreview(null);
+      return;
+    }
+    // Accept only images (jpeg, png, gif, webp)
+    if (!file.type.startsWith("image/")) {
+      setImageUploadError("Only image files are allowed.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageUploadError("Image must be less than 5MB.");
+      return;
+    }
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Remove selected image
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    setImageUploadError(null);
+  };
   const [templates, setTemplates] = useState<MassTextTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -144,7 +181,15 @@ export function MassTextCampaign({
           name: nameToCheck,
           body: message,
         };
-        if (selectedTemplateId && !asNew) payload._id = selectedTemplateId;
+        // Only send _id if it is a non-empty string
+        if (
+          selectedTemplateId &&
+          !asNew &&
+          typeof selectedTemplateId === "string" &&
+          selectedTemplateId.length === 24
+        ) {
+          payload._id = selectedTemplateId;
+        }
         const res = await fetch("/api/texts/templates", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -218,6 +263,27 @@ export function MassTextCampaign({
 
   const validContactCount = contacts.filter((c) => c.phone.trim()).length;
 
+  // Character count helpers
+  const [charCount, setCharCount] = useState(0);
+  const [maxPersonalizedCount, setMaxPersonalizedCount] = useState(0);
+  useEffect(() => {
+    setCharCount(message.length);
+    // Calculate the max personalized message length for all contacts
+    if (contacts.length > 0) {
+      let maxLen = 0;
+      for (const contact of contacts) {
+        const personalized = message.replace(
+          /\{name\}/gi,
+          contact.name || contact.phone,
+        );
+        if (personalized.length > maxLen) maxLen = personalized.length;
+      }
+      setMaxPersonalizedCount(maxLen);
+    } else {
+      setMaxPersonalizedCount(message.length);
+    }
+  }, [message, contacts]);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -239,19 +305,48 @@ export function MassTextCampaign({
         setIsSending(false);
         return;
       }
+      // Check for Twilio 1600 char limit after personalization
+      for (const contact of validContacts) {
+        const personalized = message.replace(
+          /\{name\}/gi,
+          contact.name || contact.phone,
+        );
+        if (personalized.length > 1600) {
+          setError(
+            `Message to ${contact.phone} exceeds 1600 character limit after personalization.`,
+          );
+          setIsSending(false);
+          return;
+        }
+      }
       setIsSending(true);
       try {
-        // Send message template and contacts as-is; backend should do {name} replacement
+        let imageUrl: string | undefined = undefined;
+        if (imageFile) {
+          // Upload image to server or cloud storage (implement /api/upload or similar)
+          const formData = new FormData();
+          formData.append("file", imageFile);
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok || !data.url)
+            throw new Error(data.error || "Image upload failed");
+          imageUrl = data.url;
+        }
         await onSend({
           message: message.trim(),
           contacts: validContacts,
           template_name: templateName || "Untitled",
+          imageUrl,
         });
         setSuccess(`Campaign sent to ${validContacts.length} contacts!`);
         setMessage("");
         _setContacts([{ phone: "", name: "" }]);
         setSelectedTemplateId("");
         setTemplateName("");
+        handleRemoveImage();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to send campaign",
@@ -260,7 +355,7 @@ export function MassTextCampaign({
         setIsSending(false);
       }
     },
-    [message, contacts, onSend, selectedTemplateId, templateName],
+    [message, contacts, onSend, selectedTemplateId, templateName, imageFile],
   );
 
   if (!hydrated) {
@@ -343,15 +438,66 @@ export function MassTextCampaign({
           )}
         </div>
       </div>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col gap-4"
+        encType="multipart/form-data"
+      >
+        {/* Image upload for MMS */}
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Image (optional, for MMS)
+          </label>
+          <div className="flex items-center gap-2">
+            <label className="inline-block cursor-pointer px-3 py-1 bg-secondary text-secondary-foreground border border-border rounded font-medium hover:bg-secondary/80 disabled:opacity-50">
+              Choose File
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                disabled={isSending}
+                style={{ display: "none" }}
+              />
+            </label>
+            <span className="text-xs text-muted-foreground">
+              {imageFile ? imageFile.name : "No file chosen"}
+            </span>
+          </div>
+          {imageUploadError && (
+            <div className="text-xs text-red-500">{imageUploadError}</div>
+          )}
+          {imagePreview && (
+            <div className="mt-2 flex flex-col gap-2">
+              <img
+                src={imagePreview}
+                alt="Preview"
+                className="max-h-40 rounded border"
+              />
+              <Button type="button" onClick={handleRemoveImage} size="sm">
+                Remove Image
+              </Button>
+            </div>
+          )}
+        </div>
         {error && <div className="text-red-500 text-sm">{error}</div>}
         {success && <div className="text-green-600 text-sm">{success}</div>}
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Enter your message. Use {name} for personalization."
-          rows={4}
-        />
+        <div className="flex flex-col gap-1">
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Enter your message. Use {name} for personalization."
+            rows={4}
+          />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Raw: {charCount} chars</span>
+            <span>
+              Max personalized: {maxPersonalizedCount} chars
+              {maxPersonalizedCount > 1600 && (
+                <span className="text-red-500"> (Over Twilio limit!)</span>
+              )}
+            </span>
+          </div>
+        </div>
         <div>
           <label className="block text-sm font-medium mb-1">Contacts</label>
           <div className="flex gap-2 mb-2">

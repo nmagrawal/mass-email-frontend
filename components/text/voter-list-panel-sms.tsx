@@ -1,4 +1,21 @@
-"use client";
+// Helper: E.164 and US/IN mobile validation (reuse from mass-text-campaign if needed)
+function isValidPhoneNumber(phone: string): boolean {
+  if (!phone) return false;
+  // E.164 format: +<countrycode><number>
+  if (!/^\+\d{10,15}$/.test(phone)) return false;
+  // US/IN mobile detection (customize as needed)
+  if (phone.startsWith("+1")) {
+    // US: +1NXXNXXXXXX, N=2-9, X=0-9
+    return /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(phone);
+  }
+  if (phone.startsWith("+91")) {
+    // India: +91[6-9][0-9]{9}
+    return /^\+91[6-9]\d{9}$/.test(phone);
+  }
+  // Allow other countries for now
+  return true;
+}
+("use client");
 import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Search } from "lucide-react";
@@ -38,7 +55,30 @@ export function VoterListPanelSMS({
         const res = await fetch(`/api/voters?skip=0&limit=${PAGE_SIZE}`);
         const data = await res.json();
         setCities(data.cities || []);
-        setVoters(data.voters || []);
+        // Mark invalid phone numbers in DB and filter them out
+        const validVoters: Voter[] = [];
+        for (const v of data.voters || []) {
+          const phone =
+            v.demographics?.phone ||
+            v.demographics?.PhoneNumber ||
+            v.demographics?.phone_1 ||
+            v.phone ||
+            "";
+          if (!isValidPhoneNumber(phone)) {
+            // Mark as invalid in DB (fire and forget)
+            fetch("/api/voters", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                voterId: v._id.$oid || v._id,
+                invalid_phone: true,
+              }),
+            });
+            continue;
+          }
+          validVoters.push(v);
+        }
+        setVoters(validVoters);
         setTotal(data.total || null);
         setSelected({});
       } catch (err) {
@@ -62,7 +102,29 @@ export function VoterListPanelSMS({
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        setVoters(data.voters || []);
+        // Mark invalid phone numbers in DB and filter them out
+        const validVoters: Voter[] = [];
+        for (const v of data.voters || []) {
+          const phone =
+            v.demographics?.phone ||
+            v.demographics?.PhoneNumber ||
+            v.demographics?.phone_1 ||
+            v.phone ||
+            "";
+          if (!isValidPhoneNumber(phone)) {
+            fetch("/api/voters", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                voterId: v._id.$oid || v._id,
+                invalid_phone: true,
+              }),
+            });
+            continue;
+          }
+          validVoters.push(v);
+        }
+        setVoters(validVoters);
         setTotal(data.total || null);
         setSelected({});
       })
@@ -86,8 +148,30 @@ export function VoterListPanelSMS({
     try {
       const res = await fetch(url);
       const data = await res.json();
-      setVoters(data.voters || []);
-      setTotal(data.voters ? data.voters.length : 0);
+      // Mark invalid phone numbers in DB and filter them out
+      const validVoters: Voter[] = [];
+      for (const v of data.voters || []) {
+        const phone =
+          v.demographics?.phone ||
+          v.demographics?.PhoneNumber ||
+          v.demographics?.phone_1 ||
+          v.phone ||
+          "";
+        if (!isValidPhoneNumber(phone)) {
+          fetch("/api/voters", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              voterId: v._id.$oid || v._id,
+              invalid_phone: true,
+            }),
+          });
+          continue;
+        }
+        validVoters.push(v);
+      }
+      setVoters(validVoters);
+      setTotal(validVoters.length);
       setSelected({});
     } catch {
       setError("Failed to search voters");

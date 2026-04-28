@@ -1,3 +1,27 @@
+import { ObjectId } from "mongodb";
+// PATCH: Mark voter as invalid phone
+export async function PATCH(req: NextRequest) {
+  try {
+    const db = await getDb(dbName);
+    const collection = db.collection(collectionName);
+    const body = await req.json();
+    const { voterId, invalid_phone } = body;
+    if (!voterId) {
+      return NextResponse.json({ error: "Missing voterId" }, { status: 400 });
+    }
+    const _id = typeof voterId === "string" ? new ObjectId(voterId) : voterId;
+    const result = await collection.updateOne(
+      { _id },
+      { $set: { invalid_phone: !!invalid_phone } }
+    );
+    if (result.modifiedCount === 0) {
+      return NextResponse.json({ error: "Voter not found or not updated" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : err }, { status: 500 });
+  }
+}
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/api/mongo";
@@ -24,7 +48,7 @@ export async function GET(req: NextRequest) {
     const mapped = searchParams.get("mapped");
     const search = searchParams.get("search");
     // Build filter
-    const filter: Record<string, any> = {};
+    const filter: Record<string, any> = { invalid_phone: { $ne: true } };
     if (city) {
       filter["demographics.city"] = city;
     }
@@ -32,12 +56,12 @@ export async function GET(req: NextRequest) {
       filter["opgovUserId"] = { $exists: true, $ne: null };
     }
     // Add search by full_name (case-insensitive, partial match)
-      if (search) {
-        filter["$or"] = [
-          { full_name: { $regex: search, $options: "i" } },
-          { first_name: { $regex: search, $options: "i" } },
-          { last_name: { $regex: search, $options: "i" } }
-        ];
+    if (search) {
+      filter["$or"] = [
+        { full_name: { $regex: search, $options: "i" } },
+        { first_name: { $regex: search, $options: "i" } },
+        { last_name: { $regex: search, $options: "i" } }
+      ];
     }
 
     // Only return mapped voters if mapped param is set, otherwise default to previous logic

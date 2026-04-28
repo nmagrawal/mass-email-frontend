@@ -284,6 +284,22 @@ export function MassTextCampaign({
     }
   }, [message, contacts]);
 
+  // Phone number validation (E.164 format, basic mobile check for US/IN)
+  function isValidPhoneNumber(phone: string) {
+    // E.164: + followed by 10-15 digits
+    const e164 = /^\+[1-9]\d{9,14}$/;
+    if (!e164.test(phone)) return false;
+    // Optionally, check for US/IN mobile prefixes
+    // US: +1[2-9][0-9]{9}, IN: +91[6-9][0-9]{9}
+    if (phone.startsWith("+1")) {
+      return /^\+1[2-9][0-9]{9}$/.test(phone);
+    }
+    if (phone.startsWith("+91")) {
+      return /^\+91[6-9][0-9]{9}$/.test(phone);
+    }
+    return true; // Accept other countries as long as E.164
+  }
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -305,8 +321,28 @@ export function MassTextCampaign({
         setIsSending(false);
         return;
       }
+      // Phone number validation: skip invalid numbers, warn user
+      const invalidContacts = validContacts.filter(
+        (contact) => !isValidPhoneNumber(contact.phone.trim()),
+      );
+      const validToSend = validContacts.filter((contact) =>
+        isValidPhoneNumber(contact.phone.trim()),
+      );
+      if (invalidContacts.length > 0) {
+        setError(
+          `Skipped ${invalidContacts.length} invalid phone number(s): ` +
+            invalidContacts.map((c) => c.phone).join(", ") +
+            ". Sending to remaining valid contacts.",
+        );
+        // Don't block, just warn
+      }
+      if (validToSend.length === 0) {
+        setError("No valid phone numbers to send.");
+        setIsSending(false);
+        return;
+      }
       // Check for Twilio 1600 char limit after personalization
-      for (const contact of validContacts) {
+      for (const contact of validToSend) {
         const personalized = message.replace(
           /\{name\}/gi,
           contact.name || contact.phone,
@@ -337,11 +373,11 @@ export function MassTextCampaign({
         }
         await onSend({
           message: message.trim(),
-          contacts: validContacts,
+          contacts: validToSend,
           template_name: templateName || "Untitled",
           imageUrl,
         });
-        setSuccess(`Campaign sent to ${validContacts.length} contacts!`);
+        setSuccess(`Campaign sent to ${validToSend.length} contacts!`);
         setMessage("");
         _setContacts([{ phone: "", name: "" }]);
         setSelectedTemplateId("");

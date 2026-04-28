@@ -137,7 +137,7 @@ export function VoterListPanelSMS({
         if (!phone) return null;
         return {
           phone,
-          name: v.full_name.split(" ")[0] || "",
+          name: v.full_name || "",
           full_name: v.full_name,
         };
       })

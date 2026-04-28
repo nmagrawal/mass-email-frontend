@@ -1,3 +1,4 @@
+"use client";
 // Helper: E.164 and US/IN mobile validation (reuse from mass-text-campaign if needed)
 function isValidPhoneNumber(phone: string): boolean {
   if (!phone) return false;
@@ -15,7 +16,7 @@ function isValidPhoneNumber(phone: string): boolean {
   // Allow other countries for now
   return true;
 }
-("use client");
+
 import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Search } from "lucide-react";

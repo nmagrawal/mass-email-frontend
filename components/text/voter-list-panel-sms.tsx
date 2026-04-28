@@ -135,9 +135,33 @@ export function VoterListPanelSMS({
           v.phone ||
           "";
         if (!phone) return null;
+        // Extract first name, skipping titles
+        let name = "";
+        if (v.full_name) {
+          const parts = v.full_name.trim().split(/\s+/);
+          const skipWords = [
+            "mr",
+            "mrs",
+            "miss",
+            "ms",
+            "dr",
+            "shri",
+            "smt",
+            "kumari",
+            "adv",
+            "prof",
+            "VoterTitle",
+          ];
+          name =
+            parts.find(
+              (part) => part && !skipWords.includes(part.toLowerCase()),
+            ) ||
+            parts[0] ||
+            "";
+        }
         return {
           phone,
-          name: v.full_name || "",
+          name,
           full_name: v.full_name,
         };
       })

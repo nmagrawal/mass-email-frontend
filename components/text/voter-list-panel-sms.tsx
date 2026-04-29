@@ -281,69 +281,73 @@ export function VoterListPanelSMS({
           </div>
         )}
       </div>
-      <div className="flex-1 overflow-auto p-4">
-        {loading ? (
-          <div>Loading...</div>
-        ) : error ? (
-          <div className="text-red-500">{error}</div>
-        ) : (
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr>
-                <th className="border-b p-2 text-left w-8">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    aria-label="Select all"
-                  />
-                </th>
-                <th className="border-b p-2 text-left">Name</th>
-                <th className="border-b p-2 text-left">City</th>
-                <th className="border-b p-2 text-left">Contact Number</th>
-                <th className="border-b p-2 text-left">Last Template Sent</th>
-              </tr>
-            </thead>
-            <tbody>
-              {voters
-                .filter(({ full_name }) =>
-                  full_name.toLowerCase().includes(search.toLowerCase()),
-                )
-                .map((voter) => {
-                  const id = voter._id.$oid || voter._id;
-                  const contactNumber =
-                    voter.demographics?.phone ||
-                    voter.demographics?.PhoneNumber ||
-                    voter.demographics?.phone_1 ||
-                    voter.phone ||
-                    "";
-                  return { voter, id, contactNumber };
-                })
-                .filter(
-                  ({ contactNumber }) =>
-                    !!contactNumber && contactNumber !== "-",
-                )
-                .map(({ voter, id, contactNumber }) => (
-                  <tr key={id}>
-                    <td className="border-b p-2">
-                      <input
-                        type="checkbox"
-                        checked={!!selected[id]}
-                        onChange={() => handleCheckbox(id)}
-                        aria-label={`Select ${voter.full_name}`}
-                      />
-                    </td>
-                    <td className="border-b p-2">{voter.full_name}</td>
-                    <td className="border-b p-2">{voter.demographics.city}</td>
-                    <td className="border-b p-2">{contactNumber}</td>
-                    <td className="border-b p-2">
-                      {voter.last_template_sent || "-"}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        )}
+      <div className="flex-1 p-4">
+        <div className="border rounded max-h-96 overflow-y-auto bg-white dark:bg-zinc-900">
+          {loading ? (
+            <div className="p-4">Loading...</div>
+          ) : error ? (
+            <div className="p-4 text-red-500">{error}</div>
+          ) : (
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th className="border-b p-2 text-left w-8">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </th>
+                  <th className="border-b p-2 text-left">Name</th>
+                  <th className="border-b p-2 text-left">City</th>
+                  <th className="border-b p-2 text-left">Contact Number</th>
+                  <th className="border-b p-2 text-left">Last Template Sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {voters
+                  .filter(({ full_name }) =>
+                    full_name.toLowerCase().includes(search.toLowerCase()),
+                  )
+                  .map((voter) => {
+                    const id = voter._id.$oid || voter._id;
+                    const contactNumber =
+                      voter.demographics?.phone ||
+                      voter.demographics?.PhoneNumber ||
+                      voter.demographics?.phone_1 ||
+                      voter.phone ||
+                      "";
+                    return { voter, id, contactNumber };
+                  })
+                  .filter(
+                    ({ contactNumber }) =>
+                      !!contactNumber && contactNumber !== "-",
+                  )
+                  .map(({ voter, id, contactNumber }) => (
+                    <tr key={id}>
+                      <td className="border-b p-2">
+                        <input
+                          type="checkbox"
+                          checked={!!selected[id]}
+                          onChange={() => handleCheckbox(id)}
+                          aria-label={`Select ${voter.full_name}`}
+                        />
+                      </td>
+                      <td className="border-b p-2">{voter.full_name}</td>
+                      <td className="border-b p-2">
+                        {voter.demographics.city}
+                      </td>
+                      <td className="border-b p-2">{contactNumber}</td>
+                      <td className="border-b p-2">
+                        {voter.last_template_sent || "-"}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );

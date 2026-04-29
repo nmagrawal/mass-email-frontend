@@ -1,5 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
+import { Dialog } from "../ui/dialog";
+import { useRef } from "react";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Plus, Trash2, Upload } from "lucide-react";
@@ -33,6 +35,110 @@ export function MassTextCampaign({
   initialContacts,
   setContacts,
 }: MassTextCampaignProps) {
+  // --- City Import Modal State ---
+  const [showCityImport, setShowCityImport] = useState(false);
+  const [cityList, setCityList] = useState<string[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
+  const [cityError, setCityError] = useState<string | null>(null);
+  const [selectedCity, setSelectedCity] = useState<string>("");
+  const [importingCityContacts, setImportingCityContacts] = useState(false);
+
+  // Fetch city list when modal opens
+  useEffect(() => {
+    if (showCityImport && cityList.length === 0 && !cityLoading) {
+      setCityLoading(true);
+      setCityError(null);
+      fetch("/api/voters?distinct=city")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data.cities)) {
+            setCityList(data.cities);
+          } else if (Array.isArray(data)) {
+            setCityList(data);
+          } else {
+            setCityError("Failed to load cities");
+          }
+        })
+        .catch(() => setCityError("Failed to load cities"))
+        .finally(() => setCityLoading(false));
+    }
+  }, [showCityImport, cityList.length, cityLoading]);
+
+  // Import contacts from selected city
+  const handleImportCityContacts = async () => {
+    if (!selectedCity) return;
+    setImportingCityContacts(true);
+    setCityError(null);
+    try {
+      // Fetch all voters for the selected city (no pagination, up to 2000)
+      const res = await fetch(
+        `/api/voters?city=${encodeURIComponent(selectedCity)}&limit=2000&skip=0`,
+      );
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.voters)) {
+        setCityError(data.error || "Failed to fetch voters");
+        setImportingCityContacts(false);
+        return;
+      }
+      // Use exact same logic as voter-list-panel-sms for extracting phone and name
+      const skipWords = [
+        "mr",
+        "mrs",
+        "miss",
+        "ms",
+        "dr",
+        "shri",
+        "smt",
+        "kumari",
+        "adv",
+        "prof",
+        "VoterTitle",
+      ];
+      const newContacts: MassTextContact[] = (data.voters || [])
+        .filter((v: any) => v.invalid_phone !== true)
+        .map((v: any) => {
+          // Extract phone number using all possible fields
+          const phone =
+            v.demographics?.phone ||
+            v.demographics?.PhoneNumber ||
+            v.demographics?.phone_1 ||
+            v.phone ||
+            "";
+          if (!phone || phone === "-") return null;
+          // Extract first name, skipping titles
+          let name = "";
+          if (v.full_name) {
+            const parts = v.full_name.trim().split(/\s+/);
+            name =
+              parts.find(
+                (part: string) =>
+                  part && !skipWords.includes(part.toLowerCase()),
+              ) ||
+              parts[0] ||
+              "";
+          }
+          return { phone, name: name || phone };
+        })
+        .filter(Boolean);
+      if (newContacts.length === 0) {
+        setCityError("No valid contacts found for this city.");
+        setImportingCityContacts(false);
+        return;
+      }
+      _setContacts([...contacts, ...newContacts]);
+      setShowCityImport(false);
+      setSelectedCity("");
+      setSuccess(
+        `Imported ${newContacts.length} contacts from ${selectedCity}`,
+      );
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setCityError("Failed to import contacts");
+    } finally {
+      setImportingCityContacts(false);
+    }
+  };
+  // ...existing code...
   const [hydrated, setHydrated] = useState(false);
   // Always use default value for SSR, update from localStorage after hydration
   const [contacts, _setContactsState] = useState<MassTextContact[]>(
@@ -375,15 +481,17 @@ export function MassTextCampaign({
               error: err instanceof Error ? err.message : "Failed",
             });
           }
-          // Remove this contact from the list
-          _setContactsState((prev: MassTextContact[]) =>
-            prev.filter((_c: MassTextContact, idx: number) => idx !== 0),
-          );
-          const updated = contacts.slice(1);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("massTextContacts", JSON.stringify(updated));
-          }
-          if (setContacts) setContacts(updated);
+          // Remove this contact from the list and update localStorage/setContacts using the new state
+          _setContactsState((prev: MassTextContact[]) => {
+            const updated = prev.filter(
+              (_c: MassTextContact, idx: number) => idx !== 0,
+            );
+            if (typeof window !== "undefined") {
+              localStorage.setItem("massTextContacts", JSON.stringify(updated));
+            }
+            if (setContacts) setContacts(updated);
+            return updated;
+          });
           // Wait a bit for UI update (optional)
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
@@ -556,6 +664,64 @@ export function MassTextCampaign({
               <Upload className="h-3 w-3" />
               {showBulkInput ? "Hide Bulk Input" : "Bulk Input"}
             </Button>
+            <Button
+              type="button"
+              onClick={() => setShowCityImport(true)}
+              size="sm"
+            >
+              Import Contacts from City
+            </Button>
+            {/* City Import Modal */}
+            {showCityImport && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-lg p-6 w-full max-w-md relative">
+                  <button
+                    className="absolute top-2 right-2 text-lg font-bold text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+                    onClick={() => setShowCityImport(false)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                  <h3 className="text-lg font-semibold mb-2">
+                    Import Contacts from City
+                  </h3>
+                  {cityLoading ? (
+                    <div className="text-sm text-muted-foreground">
+                      Loading cities...
+                    </div>
+                  ) : cityError ? (
+                    <div className="text-sm text-red-500">{cityError}</div>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-medium mb-1">
+                        Select City
+                      </label>
+                      <select
+                        className="w-full rounded border p-2 mb-4"
+                        value={selectedCity}
+                        onChange={(e) => setSelectedCity(e.target.value)}
+                      >
+                        <option value="">-- Select a city --</option>
+                        {cityList.map((city) => (
+                          <option key={city} value={city}>
+                            {city}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        onClick={handleImportCityContacts}
+                        disabled={!selectedCity || importingCityContacts}
+                      >
+                        {importingCityContacts
+                          ? "Importing..."
+                          : "Add Contacts"}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             <Button
               type="button"
               onClick={() =>

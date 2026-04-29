@@ -56,30 +56,11 @@ export function VoterListPanelSMS({
         const res = await fetch(`/api/voters?skip=0&limit=${PAGE_SIZE}`);
         const data = await res.json();
         setCities(data.cities || []);
-        // Mark invalid phone numbers in DB and filter them out
-        const validVoters: Voter[] = [];
-        for (const v of data.voters || []) {
-          const phone =
-            v.demographics?.phone ||
-            v.demographics?.PhoneNumber ||
-            v.demographics?.phone_1 ||
-            v.phone ||
-            "";
-          if (!isValidPhoneNumber(phone)) {
-            // Mark as invalid in DB (fire and forget)
-            fetch("/api/voters", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                voterId: v._id.$oid || v._id,
-                invalid_phone: true,
-              }),
-            });
-            continue;
-          }
-          validVoters.push(v);
-        }
-        setVoters(validVoters);
+        // No validation: show all voters from backend except those with invalid_phone === true
+        const filteredVoters = (data.voters || []).filter(
+          (v: Voter) => v.invalid_phone !== true,
+        );
+        setVoters(filteredVoters);
         setTotal(data.total || null);
         setSelected({});
       } catch (err) {
@@ -103,29 +84,11 @@ export function VoterListPanelSMS({
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        // Mark invalid phone numbers in DB and filter them out
-        const validVoters: Voter[] = [];
-        for (const v of data.voters || []) {
-          const phone =
-            v.demographics?.phone ||
-            v.demographics?.PhoneNumber ||
-            v.demographics?.phone_1 ||
-            v.phone ||
-            "";
-          if (!isValidPhoneNumber(phone)) {
-            fetch("/api/voters", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                voterId: v._id.$oid || v._id,
-                invalid_phone: true,
-              }),
-            });
-            continue;
-          }
-          validVoters.push(v);
-        }
-        setVoters(validVoters);
+        // No validation: show all voters from backend except those with invalid_phone === true
+        const filteredVoters = (data.voters || []).filter(
+          (v: Voter) => v.invalid_phone !== true,
+        );
+        setVoters(filteredVoters);
         setTotal(data.total || null);
         setSelected({});
       })
@@ -149,30 +112,12 @@ export function VoterListPanelSMS({
     try {
       const res = await fetch(url);
       const data = await res.json();
-      // Mark invalid phone numbers in DB and filter them out
-      const validVoters: Voter[] = [];
-      for (const v of data.voters || []) {
-        const phone =
-          v.demographics?.phone ||
-          v.demographics?.PhoneNumber ||
-          v.demographics?.phone_1 ||
-          v.phone ||
-          "";
-        if (!isValidPhoneNumber(phone)) {
-          fetch("/api/voters", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              voterId: v._id.$oid || v._id,
-              invalid_phone: true,
-            }),
-          });
-          continue;
-        }
-        validVoters.push(v);
-      }
-      setVoters(validVoters);
-      setTotal(validVoters.length);
+      // No validation: show all voters from backend except those with invalid_phone === true
+      const filteredVoters = (data.voters || []).filter(
+        (v: Voter) => v.invalid_phone !== true,
+      );
+      setVoters(filteredVoters);
+      setTotal(filteredVoters.length);
       setSelected({});
     } catch {
       setError("Failed to search voters");

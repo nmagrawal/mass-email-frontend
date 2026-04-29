@@ -284,11 +284,16 @@ export function MassTextCampaign({
     }
   }, [message, contacts]);
 
+  const [invalidNumbers, setInvalidNumbers] = useState<
+    { phone: string; name?: string; error?: string }[]
+  >([]);
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setError(null);
       setSuccess(null);
+      setInvalidNumbers([]);
       if (!selectedTemplateId) {
         setError("Please save your template before sending the campaign.");
         setIsSending(false);
@@ -299,16 +304,14 @@ export function MassTextCampaign({
         setIsSending(false);
         return;
       }
-      const validContacts = contacts.filter((c) => c.phone.trim());
-      if (validContacts.length === 0) {
+      let remainingContacts = contacts.filter((c) => c.phone.trim());
+      if (remainingContacts.length === 0) {
         setError("At least one valid contact (with phone) is required");
         setIsSending(false);
         return;
       }
-      // No phone number validation: send to all contacts with a phone number
-      const validToSend = validContacts;
       // Check for Twilio 1600 char limit after personalization
-      for (const contact of validToSend) {
+      for (const contact of remainingContacts) {
         const personalized = message.replace(
           /\{name\}/gi,
           contact.name || contact.phone,
@@ -322,8 +325,8 @@ export function MassTextCampaign({
         }
       }
       setIsSending(true);
+      let imageUrl: string | undefined = undefined;
       try {
-        let imageUrl: string | undefined = undefined;
         if (imageFile) {
           // Upload image to server or cloud storage (implement /api/upload or similar)
           const formData = new FormData();
@@ -337,13 +340,57 @@ export function MassTextCampaign({
             throw new Error(data.error || "Image upload failed");
           imageUrl = data.url;
         }
-        await onSend({
-          message: message.trim(),
-          contacts: validToSend,
-          template_name: templateName || "Untitled",
-          imageUrl,
-        });
-        setSuccess(`Campaign sent to ${validToSend.length} contacts!`);
+
+        // Send one-by-one, updating UI after each
+        let sentCount = 0;
+        let failed: { phone: string; name?: string; error?: string }[] = [];
+        for (let i = 0; i < remainingContacts.length; i++) {
+          const contact = remainingContacts[i];
+          const payload = {
+            message: message.trim(),
+            contacts: [contact],
+            template_name: templateName || "Untitled",
+            imageUrl,
+          };
+          try {
+            const res = await fetch("/api/mass-texting", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              sentCount++;
+            } else {
+              failed.push({
+                phone: contact.phone,
+                name: contact.name,
+                error: data?.results?.[0]?.error || data?.error || "Failed",
+              });
+            }
+          } catch (err) {
+            failed.push({
+              phone: contact.phone,
+              name: contact.name,
+              error: err instanceof Error ? err.message : "Failed",
+            });
+          }
+          // Remove this contact from the list
+          _setContactsState((prev: MassTextContact[]) =>
+            prev.filter((_c: MassTextContact, idx: number) => idx !== 0),
+          );
+          const updated = contacts.slice(1);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("massTextContacts", JSON.stringify(updated));
+          }
+          if (setContacts) setContacts(updated);
+          // Show failed numbers in UI
+          if (failed.length > 0)
+            setInvalidNumbers((prev) => [...prev, failed[failed.length - 1]]);
+          // Wait a bit for UI update (optional)
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        setSuccess(`Campaign sent to ${sentCount} contacts!`);
         setMessage("");
         _setContacts([{ phone: "", name: "" }]);
         setSelectedTemplateId("");
@@ -357,7 +404,7 @@ export function MassTextCampaign({
         setIsSending(false);
       }
     },
-    [message, contacts, onSend, selectedTemplateId, templateName, imageFile],
+    [message, contacts, templateName, selectedTemplateId, imageFile],
   );
 
   if (!hydrated) {
@@ -593,6 +640,20 @@ export function MassTextCampaign({
         <Button type="submit" disabled={isSending || validContactCount === 0}>
           {isSending ? "Sending..." : `Send Texts (${validContactCount})`}
         </Button>
+        {invalidNumbers.length > 0 && (
+          <div className="mt-4">
+            <div className="text-red-600 font-semibold mb-2">
+              Invalid Numbers:
+            </div>
+            <ul className="text-xs">
+              {invalidNumbers.map((n, i) => (
+                <li key={i} className="mb-1">
+                  {n.phone} {n.name && `(${n.name})`} - {n.error || "Invalid"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* Remove All button moved above for UI consistency */}
       </form>
     </div>

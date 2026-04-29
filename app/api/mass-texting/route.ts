@@ -41,13 +41,15 @@ export async function POST(req: NextRequest) {
     // Send SMS or MMS to each contact (sequentially), personalizing message
     const db = await getDb(process.env.MONGODB_DB || 'opgov');
     const voters = db.collection('voters');
+    const results = [];
     for (const contact of contacts) {
       const phone = contact.phone;
       if (!phone) continue;
       // Replace {name} with contact name or phone
       const personalized = message.replace(/\{name\}/gi, contact.name || contact.phone);
       if (personalized.length > 1600) {
-        return NextResponse.json({ error: `Message to ${phone} exceeds 1600 character limit after personalization.` }, { status: 400 });
+        results.push({ phone, success: false, error: 'Message exceeds 1600 character limit after personalization.' });
+        continue;
       }
       // If imageUrl is present or message is too long, send as MMS
       const useMMS = !!imageUrl || personalized.length > 160;
@@ -67,10 +69,14 @@ export async function POST(req: NextRequest) {
         } catch (dbErr) {
           console.error('Failed to mark invalid_phone in DB:', dbErr);
         }
-        return NextResponse.json({ error: `Failed to send to ${phone}` }, { status: 500 });
+        results.push({ phone, success: false, error: 'Failed to send via Twilio.' });
+      } else {
+        results.push({ phone, success: true });
       }
     }
-    return NextResponse.json({ success: true });
+    const failed = results.filter(r => !r.success);
+    const succeeded = results.filter(r => r.success);
+    return NextResponse.json({ success: failed.length === 0, sent: succeeded.length, failed: failed.length, results });
   } catch (err) {
     return NextResponse.json({ error: 'Failed to send messages.' }, { status: 500 });
   }

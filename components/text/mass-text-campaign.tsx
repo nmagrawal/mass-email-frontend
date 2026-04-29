@@ -641,7 +641,7 @@ export function MassTextCampaign({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Enter your message. Use {name} for personalization."
-            rows={4}
+            rows={8}
           />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Raw: {charCount} chars</span>
@@ -760,45 +760,57 @@ export function MassTextCampaign({
               </Button>
             </div>
           )}
-          <div className="flex flex-col gap-2">
-            {contacts.map((contact, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <input
-                  className="rounded border p-2 flex-1"
-                  type="text"
-                  placeholder="Phone number"
-                  value={contact.phone}
-                  onChange={(e) =>
-                    _setContacts(
-                      contacts.map((c, j) =>
-                        j === i ? { ...c, phone: e.target.value } : c,
-                      ),
-                    )
-                  }
-                />
-                <input
-                  className="rounded border p-2 flex-1"
-                  type="text"
-                  placeholder="Name (optional)"
-                  value={contact.name || ""}
-                  onChange={(e) =>
-                    _setContacts(
-                      contacts.map((c, j) =>
-                        j === i ? { ...c, name: e.target.value } : c,
-                      ),
-                    )
-                  }
-                />
-                <Button
-                  type="button"
-                  onClick={() =>
-                    _setContacts(contacts.filter((_, j) => j !== i))
-                  }
-                >
-                  Remove
-                </Button>
+          <div
+            className="flex flex-col gap-2 border rounded max-h-72 overflow-y-auto bg-white dark:bg-zinc-900"
+            style={{ minHeight: 48 }}
+          >
+            {contacts.length === 0 ? (
+              <div className="p-2 text-sm text-muted-foreground">
+                No contacts added.
               </div>
-            ))}
+            ) : (
+              contacts.map((contact, i) => (
+                <div
+                  key={i}
+                  className="flex gap-2 items-center px-2 py-1 border-b last:border-b-0"
+                >
+                  <input
+                    className="rounded border p-2 flex-1"
+                    type="text"
+                    placeholder="Phone number"
+                    value={contact.phone}
+                    onChange={(e) =>
+                      _setContacts(
+                        contacts.map((c, j) =>
+                          j === i ? { ...c, phone: e.target.value } : c,
+                        ),
+                      )
+                    }
+                  />
+                  <input
+                    className="rounded border p-2 flex-1"
+                    type="text"
+                    placeholder="Name (optional)"
+                    value={contact.name || ""}
+                    onChange={(e) =>
+                      _setContacts(
+                        contacts.map((c, j) =>
+                          j === i ? { ...c, name: e.target.value } : c,
+                        ),
+                      )
+                    }
+                  />
+                  <Button
+                    type="button"
+                    onClick={() =>
+                      _setContacts(contacts.filter((_, j) => j !== i))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))
+            )}
           </div>
         </div>
         <Button type="submit" disabled={isSending || validContactCount === 0}>

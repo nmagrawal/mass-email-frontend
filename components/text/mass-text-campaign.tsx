@@ -384,12 +384,10 @@ export function MassTextCampaign({
             localStorage.setItem("massTextContacts", JSON.stringify(updated));
           }
           if (setContacts) setContacts(updated);
-          // Show failed numbers in UI
-          if (failed.length > 0)
-            setInvalidNumbers((prev) => [...prev, failed[failed.length - 1]]);
           // Wait a bit for UI update (optional)
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
+        setInvalidNumbers(failed);
         setSuccess(`Campaign sent to ${sentCount} contacts!`);
         setMessage("");
         _setContacts([{ phone: "", name: "" }]);

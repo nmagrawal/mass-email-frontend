@@ -147,7 +147,7 @@ export function MassTextCampaign({
       : [{ phone: "", name: "" }],
   );
 
-  // Keep contacts in sync with parent prop
+  // Keep contacts in sync with parent prop, but only update local state
   useEffect(() => {
     if (
       initialContacts &&
@@ -161,13 +161,18 @@ export function MassTextCampaign({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContacts]);
-  const _setContacts = (newContacts: MassTextContact[]) => {
-    _setContactsState(newContacts);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("massTextContacts", JSON.stringify(newContacts));
-    }
-    if (setContacts) setContacts(newContacts);
-  };
+
+  // Only call setContacts in event/callback, never during render
+  const _setContacts = useCallback(
+    (newContacts: MassTextContact[]) => {
+      _setContactsState(newContacts);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("massTextContacts", JSON.stringify(newContacts));
+      }
+      if (setContacts) setContacts(newContacts);
+    },
+    [setContacts],
+  );
 
   // Hydration: after mount, update contacts from localStorage if available
   useEffect(() => {
@@ -482,6 +487,7 @@ export function MassTextCampaign({
             });
           }
           // Remove this contact from the list and update localStorage/setContacts using the new state
+          // Only update local state here, do not call setContacts (avoid cross-component setState during render)
           _setContactsState((prev: MassTextContact[]) => {
             const updated = prev.filter(
               (_c: MassTextContact, idx: number) => idx !== 0,
@@ -489,7 +495,6 @@ export function MassTextCampaign({
             if (typeof window !== "undefined") {
               localStorage.setItem("massTextContacts", JSON.stringify(updated));
             }
-            if (setContacts) setContacts(updated);
             return updated;
           });
           // Wait a bit for UI update (optional)

@@ -11,7 +11,11 @@ const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
 const client = twilio(accountSid, authToken);
 
-async function sendMessage(phone: string, message: string, imageUrl?: string) {
+// 1x1 transparent PNG (public domain, user-provided)
+const DEFAULT_MMS_IMAGE =
+  'https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png';
+
+async function sendMessage(phone: string, message: string, imageUrl?: string, forceMMS?: boolean) {
   if (!accountSid || !authToken || !fromNumber) {
     throw new Error('Twilio credentials are not set.');
   }
@@ -21,8 +25,12 @@ async function sendMessage(phone: string, message: string, imageUrl?: string) {
       from: fromNumber,
       to: phone,
     };
+    // If imageUrl is provided, always send as MMS
     if (imageUrl) {
       opts.mediaUrl = [imageUrl];
+    } else if (forceMMS) {
+      // Force MMS by adding a default image
+      opts.mediaUrl = [DEFAULT_MMS_IMAGE];
     }
     await client.messages.create(opts);
     return { ok: true };
@@ -51,9 +59,14 @@ export async function POST(req: NextRequest) {
         results.push({ phone, success: false, error: 'Message exceeds 1600 character limit after personalization.' });
         continue;
       }
-      // If imageUrl is present or message is too long, send as MMS
-      const useMMS = !!imageUrl || personalized.length > 160;
-      const result = await sendMessage(phone, personalized, useMMS ? imageUrl : undefined);
+      // If imageUrl is present, or message is too long, force MMS
+      const forceMMS = !!imageUrl || personalized.length > 160;
+      const result = await sendMessage(
+        phone,
+        personalized,
+        imageUrl,
+        forceMMS && !imageUrl ? true : false
+      );
       if (!result.ok) {
         // Always mark as invalid_phone: true
         try {

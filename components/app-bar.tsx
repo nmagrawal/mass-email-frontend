@@ -8,6 +8,7 @@ const tabs = [
   { label: "Texting", href: "/mass-texting" },
   { label: "Opgov Users", href: "/voters" },
   { label: "Public Speakers", href: "/public_speakers" },
+  { label: "Inbound Messages", href: "/inbound-messages" },
 ];
 
 export function AppBar() {

@@ -18,7 +18,22 @@ export function VoterInbox() {
     setLoading(true);
     apiFetch(`/api/sms/chats?voter_id=${selectedVoter.id}`)
       .then((res) => res.json())
-      .then((data) => setChats(data.sms_chats?.[selectedVoter.campaign] || []))
+      .then((data) => {
+        const smsChats = data.sms_chats || {};
+        // Flatten all messages from all campaigns
+        let allMessages: any[] = [];
+        Object.values(smsChats).forEach((arr: any) => {
+          if (Array.isArray(arr)) {
+            allMessages = allMessages.concat(arr);
+          }
+        });
+        // Sort by timestamp
+        allMessages.sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
+        setChats(allMessages);
+      })
       .finally(() => setLoading(false));
   }, [selectedVoter]);
 
@@ -47,8 +62,12 @@ export function VoterInbox() {
               >
                 <div
                   className={`rounded px-3 py-2 max-w-xs ${msg.direction === "outbound" ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-900"}`}
+                  title={msg.timestamp}
                 >
-                  {msg.text}
+                  <div>{msg.text}</div>
+                  <div className="text-xs text-gray-500 mt-1 text-right">
+                    {new Date(msg.timestamp).toLocaleString()}
+                  </div>
                 </div>
               </div>
             ))}

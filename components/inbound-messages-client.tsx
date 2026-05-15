@@ -81,7 +81,10 @@ export default function InboundMessagesClient() {
                     className="border px-4 py-2 truncate"
                     style={{ maxWidth: 140 }}
                   >
-                    {new Date(msg.timestamp).toLocaleString()}
+                    {new Date(msg.timestamp)
+                      .toISOString()
+                      .replace("T", " ")
+                      .replace("Z", "")}
                   </td>
                 </tr>
               ))}

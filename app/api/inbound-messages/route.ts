@@ -32,6 +32,11 @@ export async function GET(req: NextRequest) {
         timestamp: msg.timestamp,
       }));
     });
+    // Filter out messages with text 'stop' or 'op' (case-insensitive, trimmed)
+    allMessages = allMessages.filter((msg) => {
+      const t = (msg.text || "").trim().toLowerCase();
+      return t !== "stop" && t !== "op";
+    });
     // Sort descending by timestamp
     allMessages.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const total = allMessages.length;

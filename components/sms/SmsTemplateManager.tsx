@@ -6,10 +6,15 @@ export function SmsTemplateManager() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const [bodyCharCount, setBodyCharCount] = useState(0);
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  // Update character count when body changes
+  useEffect(() => {
+    setBodyCharCount(body.length);
+  }, [body]);
   // Handle image file selection and preview
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageUploadError(null);
@@ -180,6 +185,11 @@ export function SmsTemplateManager() {
           required
           rows={4}
         />
+        <div
+          className={`text-xs mt-1 ${bodyCharCount > 1590 ? "text-red-500" : "text-gray-500"}`}
+        >
+          {bodyCharCount} characters
+        </div>
         {/* Image upload and/or URL */}
         <div>
           <label className="block text-sm font-medium mb-1">
@@ -237,7 +247,7 @@ export function SmsTemplateManager() {
           <button
             className="btn bg-blue-600 text-white px-4 py-2 rounded"
             type="submit"
-            disabled={loading}
+            disabled={loading || bodyCharCount > 1590}
           >
             {loading
               ? selectedId

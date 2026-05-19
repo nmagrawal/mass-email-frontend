@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const tabs = [
   { label: "Emailing", href: "/" },
   { label: "Texting", href: "/mass-texting" },
+  { label: "SMS HUB", href: "/sms-hub" },
   { label: "Opgov Users", href: "/voters" },
   { label: "Public Speakers", href: "/public_speakers" },
   { label: "Inbound Messages", href: "/inbound-messages" },

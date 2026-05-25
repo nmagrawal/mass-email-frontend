@@ -810,7 +810,7 @@ export function SmsTemplatesList() {
                         </div>
 
                         <div className="mt-3">
-                          <p className="text-slate-300 break-words leading-relaxed whitespace-pre-wrap">
+                          <p className="text-slate-300 wrap-break-word leading-relaxed whitespace-pre-wrap">
                             {previewBody}
                           </p>
 

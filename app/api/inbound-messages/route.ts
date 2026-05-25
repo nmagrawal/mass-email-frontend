@@ -27,6 +27,10 @@ function normalizeSkip(value: string | null) {
   return parsed;
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const db = await getDb(dbName);
@@ -38,14 +42,27 @@ export async function GET(req: NextRequest) {
     const limit = normalizeLimit(searchParams.get("limit"));
     const search = searchParams.get("search")?.trim() || "";
 
+    const safeSearch = escapeRegex(search);
+    const numericSearch = search.replace(/\D/g, "");
+
     const searchFilter = search
       ? {
           $or: [
-            { full_name: { $regex: search, $options: "i" } },
-            { "demographics.PhoneNumber": { $regex: search, $options: "i" } },
+            { full_name: { $regex: safeSearch, $options: "i" } },
+            { "demographics.PhoneNumber": { $regex: safeSearch, $options: "i" } },
+            ...(numericSearch
+              ? [
+                  {
+                    "demographics.PhoneNumberNormalized": {
+                      $regex: numericSearch,
+                      $options: "i",
+                    },
+                  },
+                ]
+              : []),
             {
-              "demographics.PhoneNumberNormalized": {
-                $regex: search.replace(/\D/g, ""),
+              "sms_chats.inbound_unmatched.text": {
+                $regex: safeSearch,
                 $options: "i",
               },
             },
@@ -166,6 +183,7 @@ export async function GET(req: NextRequest) {
       total: result[0]?.total || 0,
       skip,
       limit,
+      search,
     });
   } catch (err) {
     console.error("Inbound messages list error:", err);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
   MessageCircle,
@@ -8,10 +8,12 @@ import {
   Search,
   RefreshCw,
   ChevronDown,
+  X,
 } from "lucide-react";
 
 const PAGE_SIZE = 10;
-const SEARCH_PAGE_SIZE = 500;
+const SEARCH_PAGE_SIZE = 50;
+const DEBOUNCE_DELAY = 800;
 
 interface SmsInboxListProps {
   selectedVoter: Voter | null;
@@ -38,6 +40,20 @@ interface InboxApiResponse {
   detail?: Array<{ msg?: string }>;
 }
 
+function useDebouncedValue<T>(value: T, delay = DEBOUNCE_DELAY) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 export function SmsInboxList({
   selectedVoter,
   setSelectedVoter,
@@ -47,24 +63,23 @@ export function SmsInboxList({
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), DEBOUNCE_DELAY);
   const isSearching = debouncedSearch.length > 0;
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
-    }, 350);
-
-    return () => window.clearTimeout(timer);
-  }, [searchQuery]);
 
   const fetchVoters = useCallback(
     async (options?: { reset?: boolean; refresh?: boolean }) => {
       const reset = options?.reset ?? false;
       const refresh = options?.refresh ?? false;
+
+      abortControllerRef.current?.abort();
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       try {
         if (refresh) {
@@ -77,7 +92,7 @@ export function SmsInboxList({
 
         setError(null);
 
-        const skip = reset ? 0 : voters.length;
+        const skip = reset || refresh ? 0 : voters.length;
         const limit = isSearching ? SEARCH_PAGE_SIZE : PAGE_SIZE;
 
         const params = new URLSearchParams({
@@ -92,6 +107,7 @@ export function SmsInboxList({
         const res = await fetch(`/api/inbound-messages?${params.toString()}`, {
           method: "GET",
           cache: "no-store",
+          signal: controller.signal,
         });
 
         const data: InboxApiResponse = await res.json().catch(() => ({}));
@@ -109,7 +125,7 @@ export function SmsInboxList({
           ? data.conversations
           : [];
 
-        setTotal(Number(data.total || nextConversations.length || 0));
+        setTotal(Number(data.total || 0));
 
         if (reset || refresh) {
           setVoters(nextConversations);
@@ -125,15 +141,21 @@ export function SmsInboxList({
           });
         }
       } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+
         const message =
           err instanceof Error ? err.message : "Something went wrong";
 
         setError(message);
         console.error("Error fetching inbound messages:", err);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
-        setLoadingMore(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
       }
     },
     [debouncedSearch, isSearching, voters.length]
@@ -141,31 +163,15 @@ export function SmsInboxList({
 
   useEffect(() => {
     fetchVoters({ reset: true });
-  }, [debouncedSearch]);
 
-  const visibleVoters = useMemo(() => {
-    const query = debouncedSearch.toLowerCase().trim();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [debouncedSearch, fetchVoters]);
 
-    if (!query) {
-      return voters;
-    }
+  const visibleVoters = useMemo(() => voters, [voters]);
 
-    return voters.filter((voter) => {
-      const name = voter.name?.toLowerCase() || "";
-      const phone = voter.phone?.toLowerCase() || "";
-      const normalizedPhone = voter.normalizedPhone?.toLowerCase() || "";
-      const lastMessage = voter.lastMessage?.toLowerCase() || "";
-
-      return (
-        name.includes(query) ||
-        phone.includes(query) ||
-        normalizedPhone.includes(query) ||
-        lastMessage.includes(query)
-      );
-    });
-  }, [voters, debouncedSearch]);
-
-  const hasMore = !isSearching && voters.length < total;
+  const hasMore = voters.length < total;
 
   function formatDate(dateValue?: string | null) {
     if (!dateValue) return null;
@@ -180,6 +186,10 @@ export function SmsInboxList({
       day: "2-digit",
       month: "short",
     });
+  }
+
+  function clearSearch() {
+    setSearchQuery("");
   }
 
   if (loading) {
@@ -229,9 +239,24 @@ export function SmsInboxList({
             placeholder="Search by name, phone, or message..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            className="pl-10 pr-10 h-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
           />
+
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
+              title="Clear search"
+            >
+              <X size={17} />
+            </button>
+          )}
         </div>
+
+        {searchQuery !== debouncedSearch && (
+          <p className="mt-2 text-xs text-slate-400">Searching...</p>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
@@ -246,7 +271,9 @@ export function SmsInboxList({
           <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4">
             <MessageCircle size={48} className="opacity-30 mb-3" />
             <p className="text-sm text-center">
-              {searchQuery ? "No conversations found" : "No conversations yet"}
+              {debouncedSearch
+                ? "No conversations found"
+                : "No conversations yet"}
             </p>
           </div>
         ) : (
@@ -329,9 +356,8 @@ export function SmsInboxList({
       </div>
 
       <div className="shrink-0 border-t border-slate-700 p-3 bg-slate-900/50 text-xs text-slate-400 text-center">
-        {visibleVoters.length} of {isSearching ? voters.length : total}{" "}
-        conversation
-        {(isSearching ? voters.length : total) !== 1 ? "s" : ""}
+        {visibleVoters.length} of {total} conversation
+        {total !== 1 ? "s" : ""}
       </div>
     </div>
   );

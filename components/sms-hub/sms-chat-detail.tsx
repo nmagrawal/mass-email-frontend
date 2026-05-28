@@ -64,7 +64,6 @@ interface ChatApiResponse {
 type ReplyMode = "normal" | "template";
 
 const LONG_MESSAGE_LIMIT = 260;
-const PRIVATE_TEMPLATE_PREFIX = "Private Chat Reply";
 
 export function SmsChatDetail({ voter }: SmsChatDetailProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -256,9 +255,9 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
       if (!res.ok) {
         throw new Error(
           data?.detail?.[0]?.msg ||
-            data?.message ||
-            data?.error ||
-            "Failed to fetch chat"
+          data?.message ||
+          data?.error ||
+          "Failed to fetch chat"
         );
       }
 
@@ -352,64 +351,56 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
     }
   }
 
-  async function createPrivateTemplate(messageText: string) {
-    const templateName = `${PRIVATE_TEMPLATE_PREFIX} - ${new Date().toLocaleString(
-      "en-IN"
-    )}`;
+  async function sendNormalPrivateMessage(messageText: string) {
+    if (!voter) return;
+
+    const phone = normalizePhone(voter.phone || voter.normalizedPhone || "");
+
+    if (!phone) {
+      throw new Error("Voter phone number is missing");
+    }
+
+    if (!isValidPhone(phone)) {
+      throw new Error("Voter phone number is invalid");
+    }
 
     const payload = {
-      name: templateName,
-      body: messageText,
-      media_url: "",
-      is_private: true,
-      private: true,
-      type: "private_chat",
+      voterId: voter.id,
+      phone,
+      message: messageText,
     };
-
-    const res = await apiFetch("/api/sms/templates/", {
+    const res = await fetch("/api/private-message/", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
       const message = await getErrorMessage(
         res,
-        "Failed to create private reply template"
+        "Failed to send normal message"
       );
       throw new Error(message);
     }
 
-    const data = await res.json();
-
-    const createdTemplate: Template = data?.template || data;
-
-    const templateId =
-      createdTemplate?._id ||
-      createdTemplate?.id ||
-      data?._id ||
-      data?.id ||
-      data?.template_id ||
-      data?.templateId;
-
-    if (!templateId) {
-      throw new Error("Private template created, but template ID was missing");
-    }
-
-    const normalizedTemplate: Template = {
-      _id: templateId,
-      id: templateId,
-      name: createdTemplate?.name || templateName,
-      body: createdTemplate?.body || messageText,
-      media_url: createdTemplate?.media_url || "",
+    const newMessage: Message = {
+      id: `local-private-${Date.now()}`,
+      text: messageText,
+      direction: "outbound",
+      timestamp: new Date().toISOString(),
+      phone,
+      campaign: "Private Message",
     };
 
-    setTemplates((prev) => [normalizedTemplate, ...prev]);
+    setMessages((prev) => [...prev, newMessage]);
+    setNormalMessage("");
+    setCampaignName("");
 
-    return {
-      templateId,
-      templateName: normalizedTemplate.name,
-      templateBody: normalizedTemplate.body,
-    };
+    window.setTimeout(() => {
+      fetchChat(true);
+    }, 1000);
   }
 
   async function sendSingleContactCampaign(params: {
@@ -432,9 +423,8 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
     const campaignLabel =
       params.campaignLabel?.trim() ||
       campaignName.trim() ||
-      `Private Chat Reply - ${voter.name || voter.phone || "voter"} - ${new Date().toLocaleString(
-        "en-IN"
-      )}`;
+      `Template Reply - ${voter.name || voter.phone || "voter"
+      } - ${new Date().toLocaleString("en-IN")}`;
 
     const payload = {
       campaign_name: campaignLabel,
@@ -493,17 +483,7 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
           return;
         }
 
-        const privateTemplate = await createPrivateTemplate(messageText);
-
-        await sendSingleContactCampaign({
-          templateId: privateTemplate.templateId,
-          messageText,
-          campaignLabel:
-            campaignName.trim() ||
-            `Private Chat Reply - ${voter.name || voter.phone || "voter"}`,
-        });
-
-        setNormalMessage("");
+        await sendNormalPrivateMessage(messageText);
       }
 
       if (replyMode === "template") {
@@ -534,7 +514,7 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
         err instanceof Error ? err.message : "Something went wrong";
 
       setError(message);
-      console.error("Error sending single-contact campaign:", err);
+      console.error("Error sending reply:", err);
     } finally {
       setSending(false);
     }
@@ -681,18 +661,16 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
                   )}
 
                   <div
-                    className={`flex ${
-                      message.direction === "outbound"
+                    className={`flex ${message.direction === "outbound"
                         ? "justify-end"
                         : "justify-start"
-                    } animate-fadeIn`}
+                      } animate-fadeIn`}
                   >
                     <div
-                      className={`rounded-2xl px-5 py-3 max-w-xs lg:max-w-md shadow-lg transition-all hover:shadow-xl ${
-                        message.direction === "outbound"
+                      className={`rounded-2xl px-5 py-3 max-w-xs lg:max-w-md shadow-lg transition-all hover:shadow-xl ${message.direction === "outbound"
                           ? "bg-linear-to-r from-cyan-500 to-blue-500 text-white rounded-br-none"
                           : "bg-slate-700/80 text-slate-100 rounded-bl-none border border-slate-600"
-                      }`}
+                        }`}
                     >
                       <p className="text-sm leading-relaxed break-words whitespace-pre-line">
                         {displayText}
@@ -702,11 +680,10 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
                         <button
                           type="button"
                           onClick={() => toggleReadMore(messageKey)}
-                          className={`mt-2 text-xs font-semibold underline underline-offset-2 transition ${
-                            message.direction === "outbound"
+                          className={`mt-2 text-xs font-semibold underline underline-offset-2 transition ${message.direction === "outbound"
                               ? "text-white/90 hover:text-white"
                               : "text-cyan-300 hover:text-cyan-200"
-                          }`}
+                            }`}
                         >
                           {isExpanded ? "Show less" : "Read more"}
                         </button>
@@ -739,11 +716,10 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
               type="button"
               onClick={() => switchReplyMode("normal")}
               disabled={sending}
-              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                replyMode === "normal"
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${replyMode === "normal"
                   ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-200"
                   : "bg-slate-900/40 border-slate-700 text-slate-300 hover:border-slate-600"
-              }`}
+                }`}
             >
               <Type size={16} />
               Normal Message
@@ -753,11 +729,10 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
               type="button"
               onClick={() => switchReplyMode("template")}
               disabled={sending}
-              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                replyMode === "template"
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${replyMode === "template"
                   ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
                   : "bg-slate-900/40 border-slate-700 text-slate-300 hover:border-slate-600"
-              }`}
+                }`}
             >
               <FileText size={16} />
               Template Message
@@ -775,9 +750,7 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
               />
 
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>
-                  This will send as a private single-contact campaign.
-                </span>
+                <span>This will send as a direct private message.</span>
 
                 <span
                   className={
@@ -852,9 +825,8 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
                             key={templateId}
                             type="button"
                             onClick={() => selectTemplate(template)}
-                            className={`w-full text-left p-4 border-b border-slate-800 hover:bg-slate-800/80 transition-colors ${
-                              isSelected ? "bg-cyan-500/10" : ""
-                            }`}
+                            className={`w-full text-left p-4 border-b border-slate-800 hover:bg-slate-800/80 transition-colors ${isSelected ? "bg-cyan-500/10" : ""
+                              }`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -871,11 +843,10 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
                                   {template.body?.length || 0} chars
                                 </span>
                                 <span
-                                  className={`text-xs px-2 py-0.5 rounded-full border ${
-                                    segments <= 1
+                                  className={`text-xs px-2 py-0.5 rounded-full border ${segments <= 1
                                       ? "text-cyan-300 border-cyan-500/30 bg-cyan-500/10"
                                       : "text-orange-300 border-orange-500/30 bg-orange-500/10"
-                                  }`}
+                                    }`}
                                 >
                                   {segments} SMS
                                 </span>
@@ -897,11 +868,10 @@ export function SmsChatDetail({ voter }: SmsChatDetailProps) {
                     </p>
 
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full border ${
-                        selectedTemplateSegments <= 1
+                      className={`text-xs px-2 py-0.5 rounded-full border ${selectedTemplateSegments <= 1
                           ? "text-cyan-300 border-cyan-500/30 bg-cyan-500/10"
                           : "text-orange-300 border-orange-500/30 bg-orange-500/10"
-                      }`}
+                        }`}
                     >
                       {selectedTemplateSegments} SMS
                     </span>

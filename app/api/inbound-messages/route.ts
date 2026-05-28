@@ -9,21 +9,13 @@ const MAX_LIMIT = 100;
 
 function normalizeLimit(value: string | null) {
   const parsed = Number.parseInt(value || String(DEFAULT_LIMIT), 10);
-
-  if (Number.isNaN(parsed) || parsed <= 0) {
-    return DEFAULT_LIMIT;
-  }
-
+  if (Number.isNaN(parsed) || parsed <= 0) return DEFAULT_LIMIT;
   return Math.min(parsed, MAX_LIMIT);
 }
 
 function normalizeSkip(value: string | null) {
   const parsed = Number.parseInt(value || "0", 10);
-
-  if (Number.isNaN(parsed) || parsed < 0) {
-    return 0;
-  }
-
+  if (Number.isNaN(parsed) || parsed < 0) return 0;
   return parsed;
 }
 
@@ -45,7 +37,7 @@ export async function GET(req: NextRequest) {
     const safeSearch = escapeRegex(search);
     const numericSearch = search.replace(/\D/g, "");
 
-    const searchFilter = search
+    const baseSearchFilter = search
       ? {
           $or: [
             { full_name: { $regex: safeSearch, $options: "i" } },
@@ -60,51 +52,88 @@ export async function GET(req: NextRequest) {
                   },
                 ]
               : []),
-            {
-              "sms_chats.inbound_unmatched.text": {
-                $regex: safeSearch,
-                $options: "i",
-              },
-            },
           ],
         }
       : {};
 
-    const baseMatch = {
-      "sms_chats.inbound_unmatched.0": { $exists: true },
-      ...searchFilter,
-    };
-
-    const pipeline = [
+    const pipeline: any[] = [
       {
-        $match: baseMatch,
+        $match: {
+          sms_chats: { $exists: true, $type: "object" },
+          ...baseSearchFilter,
+        },
       },
       {
         $project: {
           full_name: 1,
           phone: "$demographics.PhoneNumber",
           normalizedPhone: "$demographics.PhoneNumberNormalized",
+          smsModules: { $objectToArray: "$sms_chats" },
+        },
+      },
+      {
+        $project: {
+          full_name: 1,
+          phone: 1,
+          normalizedPhone: 1,
+          allMessages: {
+            $reduce: {
+              input: "$smsModules",
+              initialValue: [],
+              in: {
+                $concatArrays: [
+                  "$$value",
+                  {
+                    $cond: [
+                      { $isArray: "$$this.v" },
+                      "$$this.v",
+                      [],
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          full_name: 1,
+          phone: 1,
+          normalizedPhone: 1,
           inboundMessages: {
             $filter: {
-              input: {
-                $ifNull: ["$sms_chats.inbound_unmatched", []],
-              },
+              input: "$allMessages",
               as: "msg",
               cond: {
-                $not: {
-                  $in: [
-                    {
-                      $toLower: {
-                        $trim: {
-                          input: {
-                            $ifNull: ["$$msg.text", ""],
+                $and: [
+                  { $eq: ["$$msg.direction", "inbound"] },
+                  {
+                    $not: {
+                      $in: [
+                        {
+                          $toLower: {
+                            $trim: {
+                              input: { $ifNull: ["$$msg.text", ""] },
+                            },
                           },
                         },
-                      },
+                        ["stop", "op"],
+                      ],
                     },
-                    ["stop", "op"],
-                  ],
-                },
+                  },
+                  ...(search
+                    ? [
+                        {
+                          $regexMatch: {
+                            input: { $ifNull: ["$$msg.text", ""] },
+                            regex: safeSearch,
+                            options: "i",
+                          },
+                        },
+                      ]
+                    : []),
+                ],
               },
             },
           },
@@ -116,16 +145,40 @@ export async function GET(req: NextRequest) {
         },
       },
       {
-        $addFields: {
+        $project: {
+          full_name: 1,
+          phone: 1,
+          normalizedPhone: 1,
           inboundCount: { $size: "$inboundMessages" },
+          inboundMessages: {
+            $map: {
+              input: "$inboundMessages",
+              as: "msg",
+              in: {
+                text: "$$msg.text",
+                direction: "$$msg.direction",
+                timestamp: "$$msg.timestamp",
+                timestampDate: {
+                  $convert: {
+                    input: "$$msg.timestamp",
+                    to: "date",
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
           latestInboundMessage: {
             $arrayElemAt: [
               {
                 $sortArray: {
                   input: "$inboundMessages",
-                  sortBy: {
-                    timestamp: -1,
-                  },
+                  sortBy: { timestampDate: -1 },
                 },
               },
               0,
@@ -141,12 +194,13 @@ export async function GET(req: NextRequest) {
           normalizedPhone: 1,
           inboundCount: 1,
           lastMessage: "$latestInboundMessage.text",
-          lastMessageTime: "$latestInboundMessage.timestamp",
+          lastMessageTime: "$latestInboundMessage.timestampDate",
         },
       },
       {
         $sort: {
           lastMessageTime: -1,
+          _id: -1,
         },
       },
       {

@@ -22,23 +22,36 @@ function normalizeTimestamp(value: unknown) {
     return value.toISOString();
   }
 
-  if (typeof value === "string") {
-    const date = new Date(value);
-
-    if (!Number.isNaN(date.getTime())) {
-      return date.toISOString();
-    }
-
-    return value;
-  }
-
   if (
     typeof value === "object" &&
     value !== null &&
     "$date" in value &&
     typeof (value as { $date?: string }).$date === "string"
   ) {
-    return new Date((value as { $date: string }).$date).toISOString();
+    const date = new Date((value as { $date: string }).$date);
+    return Number.isNaN(date.getTime())
+      ? new Date().toISOString()
+      : date.toISOString();
+  }
+
+  if (typeof value === "string") {
+    let cleaned = value.trim();
+
+    // Trim Python-style microseconds to JS-supported milliseconds.
+    cleaned = cleaned.replace(/(\.\d{3})\d+/, "$1");
+
+    // If no timezone exists, force UTC so inbound/outbound parse the same.
+    if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(cleaned)) {
+      cleaned = `${cleaned}Z`;
+    }
+
+    const date = new Date(cleaned);
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+
+    return new Date().toISOString();
   }
 
   return new Date().toISOString();
@@ -46,7 +59,6 @@ function normalizeTimestamp(value: unknown) {
 
 function shouldHideInboundText(text: string) {
   const clean = text.trim().toLowerCase();
-
   return clean === "stop" || clean === "op";
 }
 
@@ -58,10 +70,7 @@ export async function GET(
     const { voterId } = await params;
 
     if (!ObjectId.isValid(voterId)) {
-      return NextResponse.json(
-        { error: "Invalid voter id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid voter id" }, { status: 400 });
     }
 
     const db = await getDb(dbName);
@@ -79,10 +88,7 @@ export async function GET(
     );
 
     if (!voter) {
-      return NextResponse.json(
-        { error: "Voter not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Voter not found" }, { status: 404 });
     }
 
     const smsChats = voter.sms_chats || {};
@@ -102,20 +108,21 @@ export async function GET(
         if (!text.trim()) continue;
 
         const direction = raw.direction === "outbound" ? "outbound" : "inbound";
+        const timestamp = normalizeTimestamp(raw.timestamp);
 
         if (direction === "inbound" && shouldHideInboundText(text)) {
           continue;
         }
 
         messages.push({
-          id: `${threadName}-${direction}-${normalizeTimestamp(
-            raw.timestamp
-          )}-${text}`,
+          id: `${threadName}-${direction}-${timestamp}-${text}`,
           text,
           direction,
-          timestamp: normalizeTimestamp(raw.timestamp),
+          timestamp,
           campaign:
-            threadName !== "inbound_unmatched" ? threadName : raw.campaign,
+            threadName !== "inbound_unmatched"
+              ? threadName
+              : raw.campaign || null,
           full_name: voter.full_name || "Unknown Sender",
           phone,
         });

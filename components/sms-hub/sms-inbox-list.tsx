@@ -11,9 +11,9 @@ import {
   X,
 } from "lucide-react";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 const SEARCH_PAGE_SIZE = 50;
-const DEBOUNCE_DELAY = 800;
+const DEBOUNCE_DELAY = 500;
 
 interface SmsInboxListProps {
   selectedVoter: Voter | null;
@@ -33,8 +33,6 @@ export interface Voter {
 interface InboxApiResponse {
   conversations?: Voter[];
   total?: number;
-  skip?: number;
-  limit?: number;
   error?: string;
   message?: string;
   detail?: Array<{ msg?: string }>;
@@ -44,10 +42,7 @@ function useDebouncedValue<T>(value: T, delay = DEBOUNCE_DELAY) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
+    const timer = window.setTimeout(() => setDebouncedValue(value), delay);
     return () => window.clearTimeout(timer);
   }, [value, delay]);
 
@@ -66,73 +61,117 @@ export function SmsInboxList({
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const cacheRef = useRef<Map<string, InboxApiResponse>>(new Map());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const votersLengthRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const debouncedSearch = useDebouncedValue(searchQuery.trim(), DEBOUNCE_DELAY);
+  useEffect(() => {
+    votersLengthRef.current = voters.length;
+  }, [voters.length]);
+
+  const debouncedSearch = useDebouncedValue(searchQuery.trim());
   const isSearching = debouncedSearch.length > 0;
+  const limit = isSearching ? SEARCH_PAGE_SIZE : PAGE_SIZE;
+
+  const makeCacheKey = useCallback(
+    (skip: number) => `${debouncedSearch || "__all__"}:${skip}:${limit}`,
+    [debouncedSearch, limit]
+  );
+
+  const requestPage = useCallback(
+    async (skip: number, force = false) => {
+      const key = makeCacheKey(skip);
+
+      if (!force && cacheRef.current.has(key)) {
+        return cacheRef.current.get(key)!;
+      }
+
+      if (inFlightRef.current.has(key)) {
+        return null;
+      }
+
+      inFlightRef.current.add(key);
+
+      const params = new URLSearchParams({
+        skip: String(skip),
+        limit: String(limit),
+      });
+
+      if (debouncedSearch) {
+        params.set("search", debouncedSearch);
+      }
+
+      const res = await fetch(`/api/inbound-messages?${params.toString()}`, {
+        method: "GET",
+        cache: "force-cache",
+      });
+
+      const data: InboxApiResponse = await res.json().catch(() => ({}));
+
+      inFlightRef.current.delete(key);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.detail?.[0]?.msg ||
+            data?.message ||
+            data?.error ||
+            "Failed to fetch inbound messages"
+        );
+      }
+
+      cacheRef.current.set(key, data);
+      return data;
+    },
+    [debouncedSearch, limit, makeCacheKey]
+  );
+
+  const prefetchNextPage = useCallback(
+    async (nextSkip: number) => {
+      if (nextSkip >= total && total > 0) return;
+
+      try {
+        await requestPage(nextSkip);
+      } catch {
+        // silent prefetch fail
+      }
+    },
+    [requestPage, total]
+  );
 
   const fetchVoters = useCallback(
     async (options?: { reset?: boolean; refresh?: boolean }) => {
       const reset = options?.reset ?? false;
       const refresh = options?.refresh ?? false;
-
-      abortControllerRef.current?.abort();
-
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
+      const skip = reset || refresh ? 0 : votersLengthRef.current;
 
       try {
-        if (refresh) {
-          setRefreshing(true);
-        } else if (reset) {
-          setLoading(true);
-        } else {
-          setLoadingMore(true);
-        }
+        if (refresh) setRefreshing(true);
+        else if (reset) setLoading(true);
+        else setLoadingMore(true);
 
         setError(null);
 
-        const skip = reset || refresh ? 0 : voters.length;
-        const limit = isSearching ? SEARCH_PAGE_SIZE : PAGE_SIZE;
-
-        const params = new URLSearchParams({
-          skip: String(skip),
-          limit: String(limit),
-        });
-
-        if (debouncedSearch) {
-          params.set("search", debouncedSearch);
+        if (refresh) {
+          cacheRef.current.clear();
         }
 
-        const res = await fetch(`/api/inbound-messages?${params.toString()}`, {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        });
+        const data = await requestPage(skip, refresh);
 
-        const data: InboxApiResponse = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          throw new Error(
-            data?.detail?.[0]?.msg ||
-              data?.message ||
-              data?.error ||
-              "Failed to fetch inbound messages"
-          );
-        }
+        if (!data) return;
 
         const nextConversations = Array.isArray(data.conversations)
           ? data.conversations
           : [];
 
-        setTotal(Number(data.total || 0));
+        const nextTotal = Number(data.total || 0);
+        setTotal(nextTotal);
 
         if (reset || refresh) {
           setVoters(nextConversations);
         } else {
           setVoters((prev) => {
             const existingIds = new Set(prev.map((item) => item.id));
-
             const uniqueNext = nextConversations.filter(
               (item) => item?.id && !existingIds.has(item.id)
             );
@@ -140,28 +179,32 @@ export function SmsInboxList({
             return [...prev, ...uniqueNext];
           });
         }
-      } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          return;
-        }
 
+        const nextSkip = skip + nextConversations.length;
+        if (nextSkip < nextTotal) {
+          prefetchNextPage(nextSkip);
+        }
+      } catch (err: unknown) {
         const message =
           err instanceof Error ? err.message : "Something went wrong";
 
         setError(message);
         console.error("Error fetching inbound messages:", err);
       } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          setRefreshing(false);
-          setLoadingMore(false);
-        }
+        setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
       }
     },
-    [debouncedSearch, isSearching, voters.length]
+    [requestPage, prefetchNextPage]
   );
 
   useEffect(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+
+    setVoters([]);
+    setTotal(0);
     fetchVoters({ reset: true });
 
     return () => {
@@ -169,18 +212,13 @@ export function SmsInboxList({
     };
   }, [debouncedSearch, fetchVoters]);
 
-  const visibleVoters = useMemo(() => voters, [voters]);
-
   const hasMore = voters.length < total;
 
   function formatDate(dateValue?: string | null) {
     if (!dateValue) return null;
 
     const date = new Date(dateValue);
-
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
+    if (Number.isNaN(date.getTime())) return null;
 
     return date.toLocaleDateString("en-IN", {
       day: "2-digit",
@@ -188,20 +226,11 @@ export function SmsInboxList({
     });
   }
 
-  function clearSearch() {
-    setSearchQuery("");
-  }
-
   if (loading) {
     return (
       <div className="w-96 h-full min-h-0 border-r border-slate-700 bg-slate-800 flex flex-col items-center justify-center">
-        <div className="text-center">
-          <Loader2
-            className="animate-spin text-cyan-400 mx-auto mb-3"
-            size={40}
-          />
-          <p className="text-sm text-slate-300">Loading conversations...</p>
-        </div>
+        <Loader2 className="animate-spin text-cyan-400 mb-3" size={40} />
+        <p className="text-sm text-slate-300">Loading conversations...</p>
       </div>
     );
   }
@@ -222,10 +251,7 @@ export function SmsInboxList({
             className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition disabled:opacity-60"
             title="Refresh conversations"
           >
-            <RefreshCw
-              size={17}
-              className={refreshing ? "animate-spin" : ""}
-            />
+            <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>
 
@@ -245,7 +271,7 @@ export function SmsInboxList({
           {searchQuery && (
             <button
               type="button"
-              onClick={clearSearch}
+              onClick={() => setSearchQuery("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
               title="Clear search"
             >
@@ -254,7 +280,7 @@ export function SmsInboxList({
           )}
         </div>
 
-        {searchQuery !== debouncedSearch && (
+        {searchQuery.trim() !== debouncedSearch && (
           <p className="mt-2 text-xs text-slate-400">Searching...</p>
         )}
       </div>
@@ -267,18 +293,16 @@ export function SmsInboxList({
           </div>
         )}
 
-        {!error && visibleVoters.length === 0 ? (
+        {!error && voters.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4">
             <MessageCircle size={48} className="opacity-30 mb-3" />
             <p className="text-sm text-center">
-              {debouncedSearch
-                ? "No conversations found"
-                : "No conversations yet"}
+              {debouncedSearch ? "No conversations found" : "No conversations yet"}
             </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-700">
-            {visibleVoters.map((voter) => {
+            {voters.map((voter) => {
               const isSelected = selectedVoter?.id === voter.id;
               const displayDate = formatDate(voter.lastMessageTime);
 
@@ -287,7 +311,7 @@ export function SmsInboxList({
                   key={voter.id}
                   type="button"
                   onClick={() => setSelectedVoter(voter)}
-                  className={`w-full px-4 py-3.5 text-left transition-all duration-300 hover:bg-slate-700/50 group ${
+                  className={`w-full px-4 py-3.5 text-left transition-all duration-200 hover:bg-slate-700/50 group ${
                     isSelected
                       ? "bg-linear-to-r from-cyan-500/20 to-blue-500/10 border-l-4 border-l-cyan-400"
                       : "border-l-4 border-l-transparent hover:border-l-slate-500"
@@ -296,7 +320,7 @@ export function SmsInboxList({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <p
-                        className={`font-semibold text-sm truncate transition-colors ${
+                        className={`font-semibold text-sm truncate ${
                           isSelected
                             ? "text-cyan-300"
                             : "text-white group-hover:text-cyan-300"
@@ -321,12 +345,11 @@ export function SmsInboxList({
                         </span>
                       )}
 
-                      {typeof voter.unreadCount === "number" &&
-                        voter.unreadCount > 0 && (
-                          <span className="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full text-xs font-bold bg-linear-to-r from-cyan-500 to-blue-500 text-white shadow-lg">
-                            {voter.unreadCount}
-                          </span>
-                        )}
+                      {!!voter.unreadCount && voter.unreadCount > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full text-xs font-bold bg-linear-to-r from-cyan-500 to-blue-500 text-white shadow-lg">
+                          {voter.unreadCount}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -346,7 +369,6 @@ export function SmsInboxList({
                   ) : (
                     <ChevronDown size={16} />
                   )}
-
                   {loadingMore ? "Loading..." : "Load more"}
                 </button>
               </div>
@@ -356,8 +378,7 @@ export function SmsInboxList({
       </div>
 
       <div className="shrink-0 border-t border-slate-700 p-3 bg-slate-900/50 text-xs text-slate-400 text-center">
-        {visibleVoters.length} of {total} conversation
-        {total !== 1 ? "s" : ""}
+        {voters.length} of {total} conversation{total !== 1 ? "s" : ""}
       </div>
     </div>
   );

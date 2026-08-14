@@ -32,26 +32,6 @@ export function VoterListPanel({
   const PAGE_SIZE = 300;
 
   useEffect(() => {
-    const fetchCities = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/voters?skip=0&limit=${PAGE_SIZE}`);
-        const data = await res.json();
-        setCities(data.cities || []);
-        setVoters(data.voters || []);
-        setTotal(data.total || null);
-        setSelected({});
-      } catch (err) {
-        setError("Failed to load voters");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchCities();
-  }, []);
-
-  useEffect(() => {
     if (isSearching) return; // Don't auto-fetch when searching
     const skip = (page - 1) * PAGE_SIZE;
     setLoading(true);
@@ -63,6 +43,7 @@ export function VoterListPanel({
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
+        setCities(data.cities || []);
         setVoters(data.voters || []);
         setTotal(data.total || null);
         setSelected({});

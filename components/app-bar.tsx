@@ -62,7 +62,10 @@ export function AppBar() {
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[calc(100vw-2rem)] max-w-sm">
+              <DropdownMenuContent
+                align="start"
+                className="w-[calc(100vw-2rem)] max-w-sm"
+              >
                 {tabs.map((tab) => (
                   <DropdownMenuItem asChild key={tab.href}>
                     <Link

@@ -1,12 +1,20 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
+import NearestVotersMap from "@/components/NearestVotersMap";
+
+type UserLocation = {
+  lat: number;
+  lng: number;
+};
 
 type Voter = {
   _id: string;
 
   name?: {
     full?: string;
+    first?: string;
+    last?: string;
   };
 
   residence?: {
@@ -14,6 +22,11 @@ type Voter = {
     city?: string;
     state?: string;
     zip?: string;
+
+    location?: {
+      type: "Point";
+      coordinates: [number, number];
+    };
   };
 
   precinct?: {
@@ -28,137 +41,156 @@ type Voter = {
 };
 
 export default function NearestVotersPage() {
-  const [address, setAddress] = useState("");
   const [voters, setVoters] = useState<Voter[]>([]);
-  const [searchedAddress, setSearchedAddress] = useState("");
+
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
 
   const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState("");
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  function findNearest() {
+    setError("");
+
+    if (!navigator.geolocation) {
+      setError("Location is not supported by this browser.");
+
+      return;
+    }
 
     setLoading(true);
-    setError("");
-    setVoters([]);
 
-    try {
-      const response = await fetch("/api/nearest-voters", {
-        method: "POST",
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const location = {
+            lat: position.coords.latitude,
 
-        headers: {
-          "Content-Type": "application/json",
-        },
+            lng: position.coords.longitude,
+          };
 
-        body: JSON.stringify({
-          address,
-        }),
-      });
+          setUserLocation(location);
 
-      const data = await response.json();
+          const response = await fetch("/api/nearest-voters", {
+            method: "POST",
 
-      if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
-      }
+            headers: {
+              "Content-Type": "application/json",
+            },
 
-      setVoters(data.voters);
-      setSearchedAddress(data.searchedAddress);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+            body: JSON.stringify(location),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Could not find nearby voters");
+          }
+
+          setVoters(data.voters);
+        } catch (err: any) {
+          setError(err.message || "Something went wrong");
+        } finally {
+          setLoading(false);
+        }
+      },
+
+      (locationError) => {
+        setLoading(false);
+
+        switch (locationError.code) {
+          case locationError.PERMISSION_DENIED:
+            setError(
+              "Location permission was denied. Please allow location access and try again.",
+            );
+            break;
+
+          case locationError.POSITION_UNAVAILABLE:
+            setError("Your current location could not be determined.");
+            break;
+
+          case locationError.TIMEOUT:
+            setError("Location request timed out. Please try again.");
+            break;
+
+          default:
+            setError("Could not access your location.");
+        }
+      },
+
+      {
+        enableHighAccuracy: true,
+
+        timeout: 15000,
+
+        maximumAge: 30000,
+      },
+    );
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <h1 className="mb-2 text-3xl font-bold">Find Nearest Voters</h1>
+    <main className="mx-auto max-w-6xl p-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold">Nearby SRD2 Voters</h1>
 
-      <p className="mb-8 text-gray-600">
-        Enter an address to find the 10 nearest records.
-      </p>
+        <p className="mt-2 text-gray-600">
+          Use your current location to find the nearest 10 addresses.
+        </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-3">
-        <input
-          type="text"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="123 Main St, San Ramon, CA"
-          className="flex-1 rounded-lg border px-4 py-3"
-          required
-        />
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg bg-black px-6 py-3 text-white"
-        >
-          {loading ? "Searching..." : "Find Nearest 10"}
-        </button>
-      </form>
+      <button
+        onClick={findNearest}
+        disabled={loading}
+        className="rounded-lg bg-black px-6 py-3 text-white disabled:opacity-50"
+      >
+        {loading ? "Finding your location..." : "Use My Current Location"}
+      </button>
 
       {error && (
-        <div className="mt-6 rounded-lg bg-red-50 p-4 text-red-700">
+        <div className="mt-5 rounded-lg bg-red-50 p-4 text-red-700">
           {error}
         </div>
       )}
 
-      {searchedAddress && (
+      {userLocation && voters.length > 0 && (
         <div className="mt-8">
-          <p className="text-sm text-gray-500">Nearest records to</p>
-
-          <p className="font-semibold">{searchedAddress}</p>
+          <NearestVotersMap userLocation={userLocation} voters={voters} />
         </div>
       )}
 
-      <div className="mt-6 space-y-4">
-        {voters.map((voter, index) => {
-          const r = voter.residence;
+      {voters.length > 0 && (
+        <div className="mt-8 space-y-3">
+          <h2 className="text-xl font-semibold">Nearest {voters.length}</h2>
 
-          const fullAddress = [r?.address_line1, r?.city, r?.state, r?.zip]
-            .filter(Boolean)
-            .join(", ");
+          {voters.map((voter, index) => {
+            const address = [
+              voter.residence?.address_line1,
 
-          return (
-            <div key={voter._id} className="rounded-xl border p-5">
-              <div className="flex gap-4">
-                <div className="text-xl font-bold">#{index + 1}</div>
+              voter.residence?.city,
 
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold">
-                    {voter.name?.full || "Unknown"}
-                  </h2>
+              voter.residence?.state,
 
-                  <p className="text-gray-600">{fullAddress}</p>
+              voter.residence?.zip,
+            ]
+              .filter(Boolean)
+              .join(", ");
 
-                  <div className="mt-2 text-sm">
-                    {voter.precinct?.name && (
-                      <span>Precinct: {voter.precinct.name}</span>
-                    )}
+            const name =
+              voter.name?.full ||
+              [voter.name?.first, voter.name?.last].filter(Boolean).join(" ");
 
-                    {voter.registration?.party_abbr && (
-                      <span className="ml-4">
-                        Party: {voter.registration.party_abbr}
-                      </span>
-                    )}
-                  </div>
-
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                      fullAddress,
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-block text-sm underline"
-                  >
-                    Open in Google Maps
-                  </a>
+            return (
+              <div key={voter._id} className="rounded-xl border p-4">
+                <div className="font-semibold">
+                  #{index + 1} {name}
                 </div>
+
+                <div className="text-gray-600">{address}</div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </main>
   );
 }

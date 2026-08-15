@@ -184,21 +184,21 @@ export default function NearestVotersMap({
 
       bounds.extend(searchLocation);
 
-      const searchPin = new PinElement({
-        glyphText: "S",
-        scale: 1.15,
-      });
+      const blueDot = document.createElement("div");
+
+      blueDot.style.width = "18px";
+      blueDot.style.height = "18px";
+      blueDot.style.background = "#4285F4";
+      blueDot.style.border = "3px solid white";
+      blueDot.style.borderRadius = "50%";
+      blueDot.style.boxShadow = "0 0 0 8px rgba(66, 133, 244, 0.20)";
 
       const searchMarker = new AdvancedMarkerElement({
         map,
-
         position: searchLocation,
-
-        title: searchLabel,
-
-        content: searchPin,
-
-        gmpClickable: true,
+        title: "Your current location",
+        content: blueDot,
+        zIndex: 1000,
       });
 
       const searchInfo = new InfoWindow({

@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import NearestVotersMap, {
   type SearchLocation,
   type Voter,
 } from "@/components/NearestVotersMap";
+
+const REFRESH_DISTANCE_METERS = 40;
 
 function getVoterName(voter: Voter) {
   if (voter.name?.full) {
@@ -31,6 +33,35 @@ function getVoterAddress(voter: Voter) {
     .join(", ");
 }
 
+/*
+ * Distance between two GPS coordinates.
+ * Used so we only refresh nearest voters
+ * after meaningful movement.
+ */
+function distanceInMeters(a: SearchLocation, b: SearchLocation) {
+  const earthRadius = 6371000;
+
+  const toRadians = (degrees: number) => {
+    return degrees * (Math.PI / 180);
+  };
+
+  const lat1 = toRadians(a.lat);
+
+  const lat2 = toRadians(b.lat);
+
+  const deltaLat = toRadians(b.lat - a.lat);
+
+  const deltaLng = toRadians(b.lng - a.lng);
+
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+
+  const angle = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+
+  return earthRadius * angle;
+}
+
 export default function NearestVotersPage() {
   const [voters, setVoters] = useState<Voter[]>([]);
 
@@ -48,18 +79,71 @@ export default function NearestVotersPage() {
 
   const [error, setError] = useState("");
 
-  //
-  // SHARED FUNCTION
-  //
-  // Both GPS and address search
-  // eventually come here.
-  //
+  const [liveTracking, setLiveTracking] = useState(false);
 
-  async function findNearestByCoordinates(
-    lat: number,
-    lng: number,
-    label: string,
-  ) {
+  /*
+   * Browser geolocation watcher ID.
+   */
+  const watchIdRef = useRef<number | null>(null);
+
+  /*
+   * Location where we last asked
+   * MongoDB for nearest voters.
+   *
+   * The blue dot can move continuously,
+   * but Mongo only gets queried after
+   * ~40 meters of movement.
+   */
+  const lastQueriedLocationRef = useRef<SearchLocation | null>(null);
+
+  /*
+   * Prevent simultaneous nearest-voter
+   * requests if GPS fires rapidly.
+   */
+  const nearestQueryInFlightRef = useRef(false);
+
+  /*
+   * Stop GPS watcher.
+   */
+  function stopLiveTracking() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+
+      watchIdRef.current = null;
+    }
+
+    lastQueriedLocationRef.current = null;
+
+    nearestQueryInFlightRef.current = false;
+
+    setLiveTracking(false);
+
+    setLoadingLocation(false);
+  }
+
+  /*
+   * Automatically stop location tracking
+   * when leaving the page.
+   */
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
+  /*
+   * Shared MongoDB nearest-voter request.
+   *
+   * Both:
+   *
+   * - live GPS
+   * - manually entered address
+   *
+   * ultimately use this.
+   */
+  async function fetchNearestVoters(lat: number, lng: number) {
     const response = await fetch("/api/nearest-voters", {
       method: "POST",
 
@@ -79,24 +163,18 @@ export default function NearestVotersPage() {
       throw new Error(data.error || "Could not find nearby voters");
     }
 
-    setSearchLocation({
-      lat,
-      lng,
-    });
-
-    setSearchLabel(label);
-
     setVoters(data.voters || []);
   }
 
-  //
-  // OPTION 1:
-  // CURRENT LOCATION
-  //
+  /*
+   * ==========================================================
+   * OPTION 1:
+   * LIVE CURRENT LOCATION
+   * ==========================================================
+   */
 
   function useCurrentLocation() {
     setError("");
-    setVoters([]);
 
     if (!navigator.geolocation) {
       setError("Location is not supported by this browser.");
@@ -104,25 +182,88 @@ export default function NearestVotersPage() {
       return;
     }
 
+    /*
+     * Kill an old watcher if the
+     * button is clicked again.
+     */
+    stopLiveTracking();
+
     setLoadingLocation(true);
 
-    navigator.geolocation.getCurrentPosition(
+    setLiveTracking(true);
+
+    setSearchLabel("Your current location");
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
       async (position) => {
+        const currentLocation: SearchLocation = {
+          lat: position.coords.latitude,
+
+          lng: position.coords.longitude,
+        };
+
+        /*
+         * IMPORTANT:
+         *
+         * Update this every time GPS moves.
+         *
+         * This makes the blue dot move
+         * in real time on the map.
+         */
+        setSearchLocation(currentLocation);
+
+        setSearchLabel("Your current location");
+
+        const lastLocation = lastQueriedLocationRef.current;
+
+        /*
+         * First GPS position:
+         * always get nearest 10.
+         */
+        let shouldRefresh = !lastLocation;
+
+        /*
+         * Future positions:
+         * only refresh Mongo after
+         * moving ~40 meters.
+         */
+        if (lastLocation) {
+          const moved = distanceInMeters(lastLocation, currentLocation);
+
+          if (moved >= REFRESH_DISTANCE_METERS) {
+            shouldRefresh = true;
+          }
+        }
+
+        if (!shouldRefresh || nearestQueryInFlightRef.current) {
+          return;
+        }
+
+        nearestQueryInFlightRef.current = true;
+
         try {
-          const lat = position.coords.latitude;
+          await fetchNearestVoters(currentLocation.lat, currentLocation.lng);
 
-          const lng = position.coords.longitude;
+          /*
+           * Only update after
+           * successful Mongo query.
+           */
+          lastQueriedLocationRef.current = currentLocation;
 
-          await findNearestByCoordinates(lat, lng, "Your current location");
+          setLoadingLocation(false);
         } catch (err: any) {
+          setLoadingLocation(false);
+
           setError(err?.message || "Could not find nearby voters");
         } finally {
-          setLoadingLocation(false);
+          nearestQueryInFlightRef.current = false;
         }
       },
 
       (locationError) => {
         setLoadingLocation(false);
+
+        setLiveTracking(false);
 
         switch (locationError.code) {
           case locationError.PERMISSION_DENIED:
@@ -148,19 +289,29 @@ export default function NearestVotersPage() {
       },
 
       {
+        /*
+         * Ask the device for its
+         * best available GPS result.
+         */
         enableHighAccuracy: true,
 
         timeout: 15000,
 
-        maximumAge: 30000,
+        /*
+         * Don't intentionally reuse
+         * an old GPS reading for long.
+         */
+        maximumAge: 3000,
       },
     );
   }
 
-  //
-  // OPTION 2:
-  // ENTER AN ADDRESS
-  //
+  /*
+   * ==========================================================
+   * OPTION 2:
+   * MANUALLY ENTER AN ADDRESS
+   * ==========================================================
+   */
 
   async function findByAddress(e: FormEvent) {
     e.preventDefault();
@@ -175,16 +326,27 @@ export default function NearestVotersPage() {
       return;
     }
 
+    /*
+     * Manual address search should
+     * stop live GPS tracking.
+     *
+     * Otherwise GPS would immediately
+     * move the map back to the user.
+     */
+    stopLiveTracking();
+
     setLoadingAddress(true);
 
     setVoters([]);
 
     try {
-      //
-      // Step 1:
-      // address -> lat/lng
-      //
-
+      /*
+       * Step 1:
+       *
+       * Typed address
+       * ->
+       * Google latitude / longitude
+       */
       const response = await fetch("/api/geocode-address", {
         method: "POST",
 
@@ -203,17 +365,28 @@ export default function NearestVotersPage() {
         throw new Error(data.error || "Could not find that address");
       }
 
-      //
-      // Step 2:
-      // lat/lng -> nearest 10
-      //
+      const location: SearchLocation = {
+        lat: Number(data.lat),
 
-      await findNearestByCoordinates(
-        data.lat,
-        data.lng,
+        lng: Number(data.lng),
+      };
 
-        data.formattedAddress || cleanAddress,
-      );
+      /*
+       * Move map search marker
+       * immediately.
+       */
+      setSearchLocation(location);
+
+      setSearchLabel(data.formattedAddress || cleanAddress);
+
+      /*
+       * Step 2:
+       *
+       * Coordinates
+       * ->
+       * MongoDB nearest 10.
+       */
+      await fetchNearestVoters(location.lat, location.lng);
     } catch (err: any) {
       setError(err?.message || "Could not search address");
     } finally {
@@ -250,7 +423,7 @@ export default function NearestVotersPage() {
             text-gray-600
           "
         >
-          Find the 10 nearest SRD2 records using your current location or an
+          Find the nearest 10 SRD2 records using your live location or an
           address.
         </p>
       </div>
@@ -267,30 +440,116 @@ export default function NearestVotersPage() {
           shadow-sm
         "
       >
-        {/* CURRENT LOCATION */}
+        {/* LIVE LOCATION */}
 
-        <button
-          type="button"
-          onClick={useCurrentLocation}
-          disabled={isLoading}
-          className="
-            w-full
-            rounded-lg
-            bg-black
-            px-6
-            py-3
-            font-medium
-            text-white
-            transition
-            hover:bg-gray-800
-            disabled:cursor-not-allowed
-            disabled:opacity-50
-          "
-        >
-          {loadingLocation
-            ? "Finding your location..."
-            : "Use My Current Location"}
-        </button>
+        {!liveTracking ? (
+          <button
+            type="button"
+            onClick={useCurrentLocation}
+            disabled={isLoading}
+            className="
+              w-full
+              rounded-lg
+              bg-black
+              px-6
+              py-3
+              font-medium
+              text-white
+              transition
+              hover:bg-gray-800
+              disabled:cursor-not-allowed
+              disabled:opacity-50
+            "
+          >
+            {loadingLocation
+              ? "Finding your location..."
+              : "Use My Current Location"}
+          </button>
+        ) : (
+          <div
+            className="
+              flex
+              flex-col
+              gap-3
+              sm:flex-row
+            "
+          >
+            <div
+              className="
+                flex
+                flex-1
+                items-center
+                gap-3
+                rounded-lg
+                border
+                border-blue-200
+                bg-blue-50
+                px-4
+                py-3
+              "
+            >
+              <span
+                className="
+                  relative
+                  flex
+                  h-3
+                  w-3
+                "
+              >
+                <span
+                  className="
+                    absolute
+                    inline-flex
+                    h-full
+                    w-full
+                    animate-ping
+                    rounded-full
+                    bg-blue-400
+                    opacity-75
+                  "
+                />
+
+                <span
+                  className="
+                    relative
+                    inline-flex
+                    h-3
+                    w-3
+                    rounded-full
+                    bg-blue-500
+                  "
+                />
+              </span>
+
+              <span
+                className="
+                  text-sm
+                  font-medium
+                  text-blue-800
+                "
+              >
+                Live location active
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={stopLiveTracking}
+              className="
+                rounded-lg
+                border
+                px-5
+                py-3
+                text-sm
+                font-medium
+                transition
+                hover:bg-gray-50
+              "
+            >
+              Stop
+            </button>
+          </div>
+        )}
 
         {/* OR */}
 
@@ -358,7 +617,7 @@ export default function NearestVotersPage() {
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Main St, San Ramon, CA"
-              disabled={isLoading}
+              disabled={loadingAddress}
               className="
                 min-w-0
                 flex-1
@@ -378,7 +637,7 @@ export default function NearestVotersPage() {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={loadingAddress}
               className="
                 rounded-lg
                 bg-black
@@ -448,10 +707,23 @@ export default function NearestVotersPage() {
           >
             <div
               className="
+                  flex
+                  items-center
+                  gap-2
                   text-sm
                   text-gray-500
                 "
             >
+              {liveTracking && (
+                <span
+                  className="
+                      h-2
+                      w-2
+                      rounded-full
+                      bg-blue-500
+                    "
+                />
+              )}
               Showing nearest records to
             </div>
 
@@ -474,26 +746,38 @@ export default function NearestVotersPage() {
 
           {/* LIST */}
 
-          <div
-            className="
-                mt-8
-              "
-          >
-            <h2
-              className="
-                  mb-4
-                  text-xl
-                  font-semibold
-                "
-            >
-              Nearest {voters.length}
-            </h2>
-
+          <div className="mt-8">
             <div
               className="
-                  space-y-3
+                  mb-4
+                  flex
+                  items-center
+                  justify-between
+                  gap-4
                 "
             >
+              <h2
+                className="
+                    text-xl
+                    font-semibold
+                  "
+              >
+                Nearest {voters.length}
+              </h2>
+
+              {liveTracking && (
+                <span
+                  className="
+                      text-xs
+                      text-gray-500
+                    "
+                >
+                  Results refresh after moving about {REFRESH_DISTANCE_METERS}m
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3">
               {voters.map((voter, index) => {
                 const name = getVoterName(voter);
 

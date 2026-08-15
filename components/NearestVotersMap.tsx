@@ -1,24 +1,29 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 
-type UserLocation = {
+import { useEffect, useRef } from "react";
+
+export type SearchLocation = {
   lat: number;
   lng: number;
 };
 
-type Voter = {
+export type Voter = {
   _id: string;
+
+  county?: string;
 
   name?: {
     full?: string;
     first?: string;
+    middle?: string;
     last?: string;
   };
 
   residence?: {
     address_line1?: string;
+    address_line2?: string;
     city?: string;
     state?: string;
     zip?: string;
@@ -28,20 +33,98 @@ type Voter = {
       coordinates: [number, number];
     };
   };
+
+  precinct?: {
+    id?: string;
+    name?: string;
+  };
+
+  registration?: {
+    party_name?: string;
+    party_abbr?: string;
+  };
+
+  flags?: {
+    srd2?: boolean;
+    super_voter?: boolean;
+  };
 };
 
 type Props = {
-  userLocation: UserLocation;
+  searchLocation: SearchLocation;
+  searchLabel: string;
   voters: Voter[];
 };
 
 let googleMapsConfigured = false;
 
-export default function NearestVotersMap({ userLocation, voters }: Props) {
-  const mapRef = useRef<HTMLDivElement>(null);
+function getVoterName(voter: Voter) {
+  if (voter.name?.full) {
+    return voter.name.full;
+  }
+
+  return (
+    [voter.name?.first, voter.name?.middle, voter.name?.last]
+      .filter(Boolean)
+      .join(" ") || "Unknown"
+  );
+}
+
+function getVoterAddress(voter: Voter) {
+  return [
+    voter.residence?.address_line1,
+    voter.residence?.address_line2,
+    voter.residence?.city,
+    voter.residence?.state,
+    voter.residence?.zip,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function createInfoContent(title: string, subtitle?: string) {
+  const container = document.createElement("div");
+
+  container.style.minWidth = "220px";
+
+  container.style.padding = "6px";
+
+  const heading = document.createElement("div");
+
+  heading.style.fontWeight = "600";
+
+  heading.style.fontSize = "14px";
+
+  heading.textContent = title;
+
+  container.appendChild(heading);
+
+  if (subtitle) {
+    const text = document.createElement("div");
+
+    text.style.marginTop = "6px";
+
+    text.style.fontSize = "13px";
+
+    text.textContent = subtitle;
+
+    container.appendChild(text);
+  }
+
+  return container;
+}
+
+export default function NearestVotersMap({
+  searchLocation,
+  searchLabel,
+  voters,
+}: Props) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current) {
+      return;
+    }
 
     let cancelled = false;
 
@@ -63,19 +146,31 @@ export default function NearestVotersMap({ userLocation, voters }: Props) {
         googleMapsConfigured = true;
       }
 
-      const [{ Map, InfoWindow }, { AdvancedMarkerElement }, { LatLngBounds }] =
-        await Promise.all([
-          importLibrary("maps"),
-          importLibrary("marker"),
-          importLibrary("core"),
-        ]);
+      //
+      // IMPORTANT:
+      // Keep this import style.
+      // This avoids the TypeScript
+      // google namespace problem.
+      //
+      const [
+        { Map, InfoWindow },
+
+        { AdvancedMarkerElement, PinElement },
+
+        { LatLngBounds },
+      ] = await Promise.all([
+        importLibrary("maps"),
+        importLibrary("marker"),
+        importLibrary("core"),
+      ]);
 
       if (cancelled || !mapRef.current) {
         return;
       }
 
       const map = new Map(mapRef.current, {
-        center: userLocation,
+        center: searchLocation,
+
         zoom: 15,
 
         mapId: process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || "DEMO_MAP_ID",
@@ -83,46 +178,69 @@ export default function NearestVotersMap({ userLocation, voters }: Props) {
 
       const bounds = new LatLngBounds();
 
-      bounds.extend(userLocation);
+      //
+      // SEARCH LOCATION
+      //
 
-      // ----------------------------------------
-      // User's current location
-      // ----------------------------------------
+      bounds.extend(searchLocation);
 
-      const userMarker = new AdvancedMarkerElement({
+      const searchPin = new PinElement({
+        glyphText: "S",
+        scale: 1.15,
+      });
+
+      const searchMarker = new AdvancedMarkerElement({
         map,
-        position: userLocation,
-        title: "Your current location",
+
+        position: searchLocation,
+
+        title: searchLabel,
+
+        content: searchPin,
+
         gmpClickable: true,
       });
 
-      const userInfo = new InfoWindow({
-        content: `
-            <div style="padding:4px">
-              <strong>Your current location</strong>
-            </div>
-          `,
+      const searchInfo = new InfoWindow({
+        content: createInfoContent("Search Location", searchLabel),
       });
 
-      userMarker.addEventListener("gmp-click", () => {
-        userInfo.open({
+      searchMarker.addEventListener("gmp-click", () => {
+        searchInfo.open({
           map,
-          anchor: userMarker,
+          anchor: searchMarker,
         });
       });
 
-      // ----------------------------------------
-      // Nearest SRD2 voters
-      // ----------------------------------------
+      //
+      // NEAREST 10 SRD2 RECORDS
+      //
 
       voters.forEach((voter, index) => {
         const coordinates = voter.residence?.location?.coordinates;
 
         if (!coordinates || coordinates.length !== 2) {
+          console.warn("Missing coordinates:", voter._id);
+
           return;
         }
 
-        const [lng, lat] = coordinates;
+        //
+        // MongoDB:
+        // [longitude, latitude]
+        //
+
+        const [lngRaw, latRaw] = coordinates;
+
+        const lat = Number(latRaw);
+
+        const lng = Number(lngRaw);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          console.warn("Invalid coordinates:", voter._id, coordinates);
+
+          return;
+        }
 
         const position = {
           lat,
@@ -131,39 +249,35 @@ export default function NearestVotersMap({ userLocation, voters }: Props) {
 
         bounds.extend(position);
 
-        const name =
-          voter.name?.full ||
-          [voter.name?.first, voter.name?.last].filter(Boolean).join(" ") ||
-          "Unknown";
+        const name = getVoterName(voter);
 
-        const address = [
-          voter.residence?.address_line1,
-          voter.residence?.city,
-          voter.residence?.state,
-          voter.residence?.zip,
-        ]
-          .filter(Boolean)
-          .join(", ");
+        const address = getVoterAddress(voter);
+
+        //
+        // Numbered marker:
+        // 1 - 10
+        //
+
+        const pin = new PinElement({
+          glyphText: String(index + 1),
+
+          scale: 1.05,
+        });
 
         const marker = new AdvancedMarkerElement({
           map,
+
           position,
-          title: `${index + 1}. ${name}`,
+
+          title: `#${index + 1} ${name}`,
+
+          content: pin,
+
           gmpClickable: true,
         });
 
         const infoWindow = new InfoWindow({
-          content: `
-              <div style="min-width:200px;padding:4px">
-                <strong>
-                  #${index + 1} ${name}
-                </strong>
-
-                <div style="margin-top:6px">
-                  ${address}
-                </div>
-              </div>
-            `,
+          content: createInfoContent(`#${index + 1} ${name}`, address),
         });
 
         marker.addEventListener("gmp-click", () => {
@@ -173,6 +287,11 @@ export default function NearestVotersMap({ userLocation, voters }: Props) {
           });
         });
       });
+
+      //
+      // FIT SEARCH LOCATION
+      // + ALL 10 RESULTS
+      //
 
       if (voters.length > 0) {
         map.fitBounds(bounds, 60);
@@ -184,7 +303,19 @@ export default function NearestVotersMap({ userLocation, voters }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [userLocation, voters]);
+  }, [searchLocation, searchLabel, voters]);
 
-  return <div ref={mapRef} className="h-[500px] w-full rounded-xl border" />;
+  return (
+    <div
+      ref={mapRef}
+      className="
+        h-[520px]
+        w-full
+        overflow-hidden
+        rounded-xl
+        border
+        bg-gray-100
+      "
+    />
+  );
 }

@@ -1,56 +1,102 @@
 "use client";
 
-import { useState } from "react";
-import NearestVotersMap from "@/components/NearestVotersMap";
+import { FormEvent, useState } from "react";
 
-type UserLocation = {
-  lat: number;
-  lng: number;
-};
+import NearestVotersMap, {
+  type SearchLocation,
+  type Voter,
+} from "@/components/NearestVotersMap";
 
-type Voter = {
-  _id: string;
+function getVoterName(voter: Voter) {
+  if (voter.name?.full) {
+    return voter.name.full;
+  }
 
-  name?: {
-    full?: string;
-    first?: string;
-    last?: string;
-  };
+  return (
+    [voter.name?.first, voter.name?.middle, voter.name?.last]
+      .filter(Boolean)
+      .join(" ") || "Unknown"
+  );
+}
 
-  residence?: {
-    address_line1?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-
-    location?: {
-      type: "Point";
-      coordinates: [number, number];
-    };
-  };
-
-  precinct?: {
-    id?: string;
-    name?: string;
-  };
-
-  registration?: {
-    party_name?: string;
-    party_abbr?: string;
-  };
-};
+function getVoterAddress(voter: Voter) {
+  return [
+    voter.residence?.address_line1,
+    voter.residence?.address_line2,
+    voter.residence?.city,
+    voter.residence?.state,
+    voter.residence?.zip,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
 
 export default function NearestVotersPage() {
   const [voters, setVoters] = useState<Voter[]>([]);
 
-  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [searchLocation, setSearchLocation] = useState<SearchLocation | null>(
+    null,
+  );
 
-  const [loading, setLoading] = useState(false);
+  const [searchLabel, setSearchLabel] = useState("");
+
+  const [address, setAddress] = useState("");
+
+  const [loadingLocation, setLoadingLocation] = useState(false);
+
+  const [loadingAddress, setLoadingAddress] = useState(false);
 
   const [error, setError] = useState("");
 
-  function findNearest() {
+  //
+  // SHARED FUNCTION
+  //
+  // Both GPS and address search
+  // eventually come here.
+  //
+
+  async function findNearestByCoordinates(
+    lat: number,
+    lng: number,
+    label: string,
+  ) {
+    const response = await fetch("/api/nearest-voters", {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        lat,
+        lng,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Could not find nearby voters");
+    }
+
+    setSearchLocation({
+      lat,
+      lng,
+    });
+
+    setSearchLabel(label);
+
+    setVoters(data.voters || []);
+  }
+
+  //
+  // OPTION 1:
+  // CURRENT LOCATION
+  //
+
+  function useCurrentLocation() {
     setError("");
+    setVoters([]);
 
     if (!navigator.geolocation) {
       setError("Location is not supported by this browser.");
@@ -58,63 +104,46 @@ export default function NearestVotersPage() {
       return;
     }
 
-    setLoading(true);
+    setLoadingLocation(true);
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
-          const location = {
-            lat: position.coords.latitude,
+          const lat = position.coords.latitude;
 
-            lng: position.coords.longitude,
-          };
+          const lng = position.coords.longitude;
 
-          setUserLocation(location);
-
-          const response = await fetch("/api/nearest-voters", {
-            method: "POST",
-
-            headers: {
-              "Content-Type": "application/json",
-            },
-
-            body: JSON.stringify(location),
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.error || "Could not find nearby voters");
-          }
-
-          setVoters(data.voters);
+          await findNearestByCoordinates(lat, lng, "Your current location");
         } catch (err: any) {
-          setError(err.message || "Something went wrong");
+          setError(err?.message || "Could not find nearby voters");
         } finally {
-          setLoading(false);
+          setLoadingLocation(false);
         }
       },
 
       (locationError) => {
-        setLoading(false);
+        setLoadingLocation(false);
 
         switch (locationError.code) {
           case locationError.PERMISSION_DENIED:
             setError(
               "Location permission was denied. Please allow location access and try again.",
             );
+
             break;
 
           case locationError.POSITION_UNAVAILABLE:
             setError("Your current location could not be determined.");
+
             break;
 
           case locationError.TIMEOUT:
             setError("Location request timed out. Please try again.");
+
             break;
 
           default:
-            setError("Could not access your location.");
+            setError("Could not access your current location.");
         }
       },
 
@@ -128,68 +157,460 @@ export default function NearestVotersPage() {
     );
   }
 
-  return (
-    <main className="mx-auto max-w-6xl p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Nearby SRD2 Voters</h1>
+  //
+  // OPTION 2:
+  // ENTER AN ADDRESS
+  //
 
-        <p className="mt-2 text-gray-600">
-          Use your current location to find the nearest 10 addresses.
+  async function findByAddress(e: FormEvent) {
+    e.preventDefault();
+
+    setError("");
+
+    const cleanAddress = address.trim();
+
+    if (!cleanAddress) {
+      setError("Please enter an address.");
+
+      return;
+    }
+
+    setLoadingAddress(true);
+
+    setVoters([]);
+
+    try {
+      //
+      // Step 1:
+      // address -> lat/lng
+      //
+
+      const response = await fetch("/api/geocode-address", {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          address: cleanAddress,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not find that address");
+      }
+
+      //
+      // Step 2:
+      // lat/lng -> nearest 10
+      //
+
+      await findNearestByCoordinates(
+        data.lat,
+        data.lng,
+
+        data.formattedAddress || cleanAddress,
+      );
+    } catch (err: any) {
+      setError(err?.message || "Could not search address");
+    } finally {
+      setLoadingAddress(false);
+    }
+  }
+
+  const isLoading = loadingLocation || loadingAddress;
+
+  return (
+    <main
+      className="
+        mx-auto
+        max-w-6xl
+        p-6
+        md:p-8
+      "
+    >
+      {/* HEADER */}
+
+      <div className="mb-8">
+        <h1
+          className="
+            text-3xl
+            font-bold
+          "
+        >
+          Nearby SRD2 Voters
+        </h1>
+
+        <p
+          className="
+            mt-2
+            text-gray-600
+          "
+        >
+          Find the 10 nearest SRD2 records using your current location or an
+          address.
         </p>
       </div>
 
-      <button
-        onClick={findNearest}
-        disabled={loading}
-        className="rounded-lg bg-black px-6 py-3 text-white disabled:opacity-50"
+      {/* SEARCH CARD */}
+
+      <div
+        className="
+          max-w-2xl
+          rounded-2xl
+          border
+          bg-white
+          p-5
+          shadow-sm
+        "
       >
-        {loading ? "Finding your location..." : "Use My Current Location"}
-      </button>
+        {/* CURRENT LOCATION */}
+
+        <button
+          type="button"
+          onClick={useCurrentLocation}
+          disabled={isLoading}
+          className="
+            w-full
+            rounded-lg
+            bg-black
+            px-6
+            py-3
+            font-medium
+            text-white
+            transition
+            hover:bg-gray-800
+            disabled:cursor-not-allowed
+            disabled:opacity-50
+          "
+        >
+          {loadingLocation
+            ? "Finding your location..."
+            : "Use My Current Location"}
+        </button>
+
+        {/* OR */}
+
+        <div
+          className="
+            my-5
+            flex
+            items-center
+            gap-4
+          "
+        >
+          <div
+            className="
+              h-px
+              flex-1
+              bg-gray-200
+            "
+          />
+
+          <span
+            className="
+              text-xs
+              font-medium
+              text-gray-400
+            "
+          >
+            OR
+          </span>
+
+          <div
+            className="
+              h-px
+              flex-1
+              bg-gray-200
+            "
+          />
+        </div>
+
+        {/* ADDRESS SEARCH */}
+
+        <form onSubmit={findByAddress}>
+          <label
+            htmlFor="address"
+            className="
+              mb-2
+              block
+              text-sm
+              font-medium
+            "
+          >
+            Enter an address
+          </label>
+
+          <div
+            className="
+              flex
+              flex-col
+              gap-2
+              sm:flex-row
+            "
+          >
+            <input
+              id="address"
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="123 Main St, San Ramon, CA"
+              disabled={isLoading}
+              className="
+                min-w-0
+                flex-1
+                rounded-lg
+                border
+                border-gray-300
+                px-4
+                py-3
+                outline-none
+                transition
+                focus:border-black
+                focus:ring-1
+                focus:ring-black
+                disabled:bg-gray-100
+              "
+            />
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="
+                rounded-lg
+                bg-black
+                px-6
+                py-3
+                font-medium
+                text-white
+                transition
+                hover:bg-gray-800
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+              "
+            >
+              {loadingAddress ? "Searching..." : "Search"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* ERROR */}
 
       {error && (
-        <div className="mt-5 rounded-lg bg-red-50 p-4 text-red-700">
+        <div
+          className="
+            mt-5
+            max-w-2xl
+            rounded-lg
+            border
+            border-red-200
+            bg-red-50
+            p-4
+            text-sm
+            text-red-700
+          "
+        >
           {error}
         </div>
       )}
 
-      {userLocation && voters.length > 0 && (
-        <div className="mt-8">
-          <NearestVotersMap userLocation={userLocation} voters={voters} />
+      {/* NO RESULTS */}
+
+      {searchLocation && !isLoading && voters.length === 0 && !error && (
+        <div
+          className="
+              mt-8
+              rounded-xl
+              border
+              p-5
+              text-gray-600
+            "
+        >
+          No nearby SRD2 records were found.
         </div>
       )}
 
-      {voters.length > 0 && (
-        <div className="mt-8 space-y-3">
-          <h2 className="text-xl font-semibold">Nearest {voters.length}</h2>
+      {/* RESULTS */}
 
-          {voters.map((voter, index) => {
-            const address = [
-              voter.residence?.address_line1,
+      {searchLocation && voters.length > 0 && (
+        <>
+          {/* SEARCH LOCATION */}
 
-              voter.residence?.city,
+          <div
+            className="
+                mt-8
+                mb-3
+              "
+          >
+            <div
+              className="
+                  text-sm
+                  text-gray-500
+                "
+            >
+              Showing nearest records to
+            </div>
 
-              voter.residence?.state,
+            <div
+              className="
+                  font-semibold
+                "
+            >
+              {searchLabel}
+            </div>
+          </div>
 
-              voter.residence?.zip,
-            ]
-              .filter(Boolean)
-              .join(", ");
+          {/* MAP */}
 
-            const name =
-              voter.name?.full ||
-              [voter.name?.first, voter.name?.last].filter(Boolean).join(" ");
+          <NearestVotersMap
+            searchLocation={searchLocation}
+            searchLabel={searchLabel}
+            voters={voters}
+          />
 
-            return (
-              <div key={voter._id} className="rounded-xl border p-4">
-                <div className="font-semibold">
-                  #{index + 1} {name}
-                </div>
+          {/* LIST */}
 
-                <div className="text-gray-600">{address}</div>
-              </div>
-            );
-          })}
-        </div>
+          <div
+            className="
+                mt-8
+              "
+          >
+            <h2
+              className="
+                  mb-4
+                  text-xl
+                  font-semibold
+                "
+            >
+              Nearest {voters.length}
+            </h2>
+
+            <div
+              className="
+                  space-y-3
+                "
+            >
+              {voters.map((voter, index) => {
+                const name = getVoterName(voter);
+
+                const voterAddress = getVoterAddress(voter);
+
+                return (
+                  <div
+                    key={voter._id}
+                    className="
+                          rounded-xl
+                          border
+                          bg-white
+                          p-4
+                        "
+                  >
+                    <div
+                      className="
+                            flex
+                            gap-4
+                          "
+                    >
+                      {/* NUMBER */}
+
+                      <div
+                        className="
+                              flex
+                              h-9
+                              w-9
+                              shrink-0
+                              items-center
+                              justify-center
+                              rounded-full
+                              bg-black
+                              text-sm
+                              font-semibold
+                              text-white
+                            "
+                      >
+                        {index + 1}
+                      </div>
+
+                      {/* DETAILS */}
+
+                      <div
+                        className="
+                              min-w-0
+                              flex-1
+                            "
+                      >
+                        <div
+                          className="
+                                font-semibold
+                              "
+                        >
+                          {name}
+                        </div>
+
+                        <div
+                          className="
+                                mt-1
+                                text-sm
+                                text-gray-600
+                              "
+                        >
+                          {voterAddress}
+                        </div>
+
+                        <div
+                          className="
+                                mt-2
+                                flex
+                                flex-wrap
+                                gap-x-4
+                                gap-y-1
+                                text-xs
+                                text-gray-500
+                              "
+                        >
+                          {voter.precinct?.name && (
+                            <span>Precinct: {voter.precinct.name}</span>
+                          )}
+
+                          {voter.registration?.party_abbr && (
+                            <span>Party: {voter.registration.party_abbr}</span>
+                          )}
+
+                          {voter.flags?.super_voter && <span>Super Voter</span>}
+                        </div>
+
+                        {voterAddress && (
+                          <a
+                            href={
+                              `https://www.google.com/maps/search/?api=1&query=` +
+                              encodeURIComponent(voterAddress)
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="
+                                  mt-3
+                                  inline-block
+                                  text-sm
+                                  font-medium
+                                  underline
+                                  underline-offset-2
+                                "
+                          >
+                            Open in Google Maps
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
     </main>
   );

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/api/mongo";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -17,8 +19,12 @@ export async function POST(req: NextRequest) {
       lng > 180
     ) {
       return NextResponse.json(
-        { error: "Invalid location coordinates" },
-        { status: 400 }
+        {
+          error: "Invalid location coordinates",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -34,7 +40,8 @@ export async function POST(req: NextRequest) {
             $geometry: {
               type: "Point",
 
-              // MongoDB = longitude first
+              // MongoDB GeoJSON:
+              // [longitude, latitude]
               coordinates: [lng, lat],
             },
           },
@@ -43,12 +50,15 @@ export async function POST(req: NextRequest) {
       .limit(10)
       .project({
         _id: 1,
+        county: 1,
 
         "name.full": 1,
         "name.first": 1,
+        "name.middle": 1,
         "name.last": 1,
 
         "residence.address_line1": 1,
+        "residence.address_line2": 1,
         "residence.city": 1,
         "residence.state": 1,
         "residence.zip": 1,
@@ -65,7 +75,7 @@ export async function POST(req: NextRequest) {
       .toArray();
 
     return NextResponse.json({
-      userLocation: {
+      searchLocation: {
         lat,
         lng,
       },
@@ -73,15 +83,20 @@ export async function POST(req: NextRequest) {
       voters,
     });
   } catch (err: any) {
-    console.error("Nearest voters error:", err);
+    console.error(
+      "Nearest voters error:",
+      err
+    );
 
     return NextResponse.json(
       {
         error:
-          err.message ||
+          err?.message ||
           "Failed to find nearest voters",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }

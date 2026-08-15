@@ -1,54 +1,91 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
-    const { address } = await req.json();
+    const body = await req.json();
 
-    if (!address?.trim()) {
+    const address =
+      body.address?.trim();
+
+    if (!address) {
       return NextResponse.json(
-        { error: "Address is required" },
-        { status: 400 }
+        {
+          error: "Address is required",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const apiKey =
+      process.env.GOOGLE_MAPS_API_KEY;
 
     if (!apiKey) {
-      throw new Error("GOOGLE_MAPS_API_KEY is missing");
+      throw new Error(
+        "GOOGLE_MAPS_API_KEY is missing"
+      );
     }
 
     const url =
       "https://maps.googleapis.com/maps/api/geocode/json" +
       `?address=${encodeURIComponent(address)}` +
+      `&region=us` +
       `&key=${apiKey}`;
 
-    const response = await fetch(url, {
-      cache: "no-store",
-    });
+    const response = await fetch(
+      url,
+      {
+        cache: "no-store",
+      }
+    );
 
-    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        "Google Geocoding request failed"
+      );
+    }
+
+    const data =
+      await response.json();
 
     if (
       data.status !== "OK" ||
       !data.results?.length
     ) {
+      console.error(
+        "Google Geocoding status:",
+        data.status,
+        data.error_message
+      );
+
       return NextResponse.json(
         {
-          error: "Could not find that address",
+          error:
+            data.status === "ZERO_RESULTS"
+              ? "Could not find that address"
+              : "Address lookup failed",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
+    const result =
+      data.results[0];
+
     const location =
-      data.results[0].geometry.location;
+      result.geometry.location;
 
     return NextResponse.json({
       lat: location.lat,
       lng: location.lng,
 
       formattedAddress:
-        data.results[0].formatted_address,
+        result.formatted_address,
     });
   } catch (err: any) {
     console.error(
@@ -59,10 +96,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          err.message ||
+          err?.message ||
           "Failed to geocode address",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }

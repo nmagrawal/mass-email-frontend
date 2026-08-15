@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
         "name.middle": 1,
         "name.last": 1,
 
+        contact: 1,
+
         "residence.address_line1": 1,
         "residence.address_line2": 1,
         "residence.city": 1,

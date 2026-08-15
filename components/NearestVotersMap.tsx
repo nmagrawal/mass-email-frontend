@@ -21,6 +21,12 @@ export type Voter = {
     last?: string;
   };
 
+  contact?: {
+    phone_primary?: string;
+    phone_secondary?: string;
+    email?: string;
+  };
+
   residence?: {
     address_line1?: string;
     address_line2?: string;
@@ -82,33 +88,116 @@ function getVoterAddress(voter: Voter) {
     .join(", ");
 }
 
-function createInfoContent(title: string, subtitle?: string) {
+function createVoterInfoContent(voter: Voter, index: number) {
   const container = document.createElement("div");
 
-  container.style.minWidth = "220px";
-
+  container.style.minWidth = "240px";
   container.style.padding = "6px";
+
+  // NAME
 
   const heading = document.createElement("div");
 
   heading.style.fontWeight = "600";
-
   heading.style.fontSize = "14px";
 
-  heading.textContent = title;
+  heading.textContent = `#${index + 1} ${getVoterName(voter)}`;
 
   container.appendChild(heading);
 
-  if (subtitle) {
-    const text = document.createElement("div");
+  // ADDRESS
 
-    text.style.marginTop = "6px";
+  const address = getVoterAddress(voter);
 
-    text.style.fontSize = "13px";
+  if (address) {
+    const addressElement = document.createElement("div");
 
-    text.textContent = subtitle;
+    addressElement.style.marginTop = "6px";
 
-    container.appendChild(text);
+    addressElement.style.fontSize = "13px";
+
+    addressElement.textContent = address;
+
+    container.appendChild(addressElement);
+  }
+
+  // CONTACT SECTION
+
+  const hasContact =
+    voter.contact?.phone_primary ||
+    voter.contact?.phone_secondary ||
+    voter.contact?.email;
+
+  if (hasContact) {
+    const contactContainer = document.createElement("div");
+
+    contactContainer.style.marginTop = "10px";
+
+    contactContainer.style.paddingTop = "8px";
+
+    contactContainer.style.borderTop = "1px solid #e5e7eb";
+
+    // PRIMARY PHONE
+
+    if (voter.contact?.phone_primary) {
+      const phone = document.createElement("a");
+
+      phone.href = `tel:${voter.contact.phone_primary}`;
+
+      phone.textContent = `📞 ${voter.contact.phone_primary}`;
+
+      phone.style.display = "block";
+
+      phone.style.marginBottom = "5px";
+
+      phone.style.color = "#2563eb";
+
+      phone.style.fontSize = "13px";
+
+      contactContainer.appendChild(phone);
+    }
+
+    // SECONDARY PHONE
+
+    if (voter.contact?.phone_secondary) {
+      const phone = document.createElement("a");
+
+      phone.href = `tel:${voter.contact.phone_secondary}`;
+
+      phone.textContent = `📞 ${voter.contact.phone_secondary}`;
+
+      phone.style.display = "block";
+
+      phone.style.marginBottom = "5px";
+
+      phone.style.color = "#2563eb";
+
+      phone.style.fontSize = "13px";
+
+      contactContainer.appendChild(phone);
+    }
+
+    // EMAIL
+
+    if (voter.contact?.email) {
+      const email = document.createElement("a");
+
+      email.href = `mailto:${voter.contact.email}`;
+
+      email.textContent = `✉️ ${voter.contact.email}`;
+
+      email.style.display = "block";
+
+      email.style.color = "#2563eb";
+
+      email.style.fontSize = "13px";
+
+      email.style.wordBreak = "break-all";
+
+      contactContainer.appendChild(email);
+    }
+
+    container.appendChild(contactContainer);
   }
 
   return container;
@@ -199,10 +288,31 @@ export default function NearestVotersMap({
         title: "Your current location",
         content: blueDot,
         zIndex: 1000,
+        gmpClickable: true,
       });
 
+      const searchInfoContent = document.createElement("div");
+
+      searchInfoContent.style.padding = "6px";
+
+      const searchInfoHeading = document.createElement("div");
+      searchInfoHeading.style.fontWeight = "600";
+      searchInfoHeading.textContent = "Your Current Location";
+
+      searchInfoContent.appendChild(searchInfoHeading);
+
+      if (searchLabel) {
+        const searchInfoLabel = document.createElement("div");
+
+        searchInfoLabel.style.marginTop = "5px";
+        searchInfoLabel.style.fontSize = "13px";
+        searchInfoLabel.textContent = searchLabel;
+
+        searchInfoContent.appendChild(searchInfoLabel);
+      }
+
       const searchInfo = new InfoWindow({
-        content: createInfoContent("Search Location", searchLabel),
+        content: searchInfoContent,
       });
 
       searchMarker.addEventListener("gmp-click", () => {
@@ -251,8 +361,6 @@ export default function NearestVotersMap({
 
         const name = getVoterName(voter);
 
-        const address = getVoterAddress(voter);
-
         //
         // Numbered marker:
         // 1 - 10
@@ -277,7 +385,7 @@ export default function NearestVotersMap({
         });
 
         const infoWindow = new InfoWindow({
-          content: createInfoContent(`#${index + 1} ${name}`, address),
+          content: createVoterInfoContent(voter, index),
         });
 
         marker.addEventListener("gmp-click", () => {

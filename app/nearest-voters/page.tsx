@@ -843,6 +843,60 @@ export default function NearestVotersPage() {
                               "
                         >
                           {voterAddress}
+                          {(voter.contact?.phone_primary ||
+                            voter.contact?.phone_secondary ||
+                            voter.contact?.email) && (
+                            <div
+                              className="
+      mt-3
+      flex
+      flex-wrap
+      gap-x-4
+      gap-y-2
+      text-sm
+    "
+                            >
+                              {voter.contact?.phone_primary && (
+                                <a
+                                  href={`tel:${voter.contact.phone_primary}`}
+                                  className="
+          font-medium
+          text-blue-600
+          hover:underline
+        "
+                                >
+                                  📞 {voter.contact.phone_primary}
+                                </a>
+                              )}
+
+                              {voter.contact?.phone_secondary && (
+                                <a
+                                  href={`tel:${voter.contact.phone_secondary}`}
+                                  className="
+          font-medium
+          text-blue-600
+          hover:underline
+        "
+                                >
+                                  📞 {voter.contact.phone_secondary}
+                                </a>
+                              )}
+
+                              {voter.contact?.email && (
+                                <a
+                                  href={`mailto:${voter.contact.email}`}
+                                  className="
+          break-all
+          font-medium
+          text-blue-600
+          hover:underline
+        "
+                                >
+                                  ✉️ {voter.contact.email}
+                                </a>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div

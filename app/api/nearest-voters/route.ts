@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
     const voters = await db
       .collection("voters")
       .find({
-        "flags.srd2": true,
+        "residence.city": "San Ramon",
+  "flags.super_voter": true,
 
         "residence.location": {
           $near: {

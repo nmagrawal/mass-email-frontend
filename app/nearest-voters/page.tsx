@@ -414,7 +414,7 @@ export default function NearestVotersPage() {
             font-bold
           "
         >
-          Nearby SRD2 Voters
+          Nearby San Ramon Super Voters
         </h1>
 
         <p
@@ -423,8 +423,8 @@ export default function NearestVotersPage() {
             text-gray-600
           "
         >
-          Find the nearest 10 SRD2 records using your live location or an
-          address.
+          Find the nearest 10 San Ramon super voters using your live location or
+          an address.
         </p>
       </div>
 
@@ -689,7 +689,7 @@ export default function NearestVotersPage() {
               text-gray-600
             "
         >
-          No nearby SRD2 records were found.
+          No nearby San Ramon super voters were found.
         </div>
       )}
 
@@ -918,7 +918,35 @@ export default function NearestVotersPage() {
                             <span>Party: {voter.registration.party_abbr}</span>
                           )}
 
-                          {voter.flags?.super_voter && <span>Super Voter</span>}
+                          {voter.flags?.super_voter && (
+                            <span
+                              className="
+      rounded-full
+      bg-green-50
+      px-2
+      py-1
+      font-medium
+      text-green-700
+    "
+                            >
+                              Super Voter
+                            </span>
+                          )}
+
+                          {voter.flags?.srd2 && (
+                            <span
+                              className="
+      rounded-full
+      bg-blue-50
+      px-2
+      py-1
+      font-medium
+      text-blue-700
+    "
+                            >
+                              District 2
+                            </span>
+                          )}
                         </div>
 
                         {voterAddress && (

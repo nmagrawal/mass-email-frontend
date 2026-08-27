@@ -199,6 +199,49 @@ function createVoterInfoContent(voter: Voter, index: number) {
 
     container.appendChild(contactContainer);
   }
+  const metaContainer = document.createElement("div");
+
+  metaContainer.style.marginTop = "10px";
+
+  metaContainer.style.paddingTop = "8px";
+
+  metaContainer.style.borderTop = "1px solid #e5e7eb";
+
+  metaContainer.style.fontSize = "12px";
+
+  metaContainer.style.color = "#4b5563";
+
+  if (voter.registration?.party_abbr) {
+    const party = document.createElement("div");
+
+    party.textContent = `Party: ${voter.registration.party_abbr}`;
+
+    metaContainer.appendChild(party);
+  }
+
+  if (voter.precinct?.name) {
+    const precinct = document.createElement("div");
+
+    precinct.textContent = `Precinct: ${voter.precinct.name}`;
+
+    metaContainer.appendChild(precinct);
+  }
+
+  if (voter.flags?.srd2) {
+    const district = document.createElement("div");
+
+    district.textContent = "District 2";
+
+    district.style.fontWeight = "600";
+
+    district.style.color = "#2563eb";
+
+    district.style.marginTop = "4px";
+
+    metaContainer.appendChild(district);
+  }
+
+  container.appendChild(metaContainer);
 
   return container;
 }

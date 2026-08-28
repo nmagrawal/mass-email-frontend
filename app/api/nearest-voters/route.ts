@@ -19,12 +19,8 @@ export async function POST(req: NextRequest) {
       lng > 180
     ) {
       return NextResponse.json(
-        {
-          error: "Invalid location coordinates",
-        },
-        {
-          status: 400,
-        }
+        { error: "Invalid location coordinates" },
+        { status: 400 },
       );
     }
 
@@ -34,21 +30,18 @@ export async function POST(req: NextRequest) {
       .collection("voters")
       .find({
         "residence.city": "San Ramon",
-  "flags.super_voter": true,
-
+        "flags.super_voter": true,
         "residence.location": {
           $near: {
             $geometry: {
               type: "Point",
-
-              // MongoDB GeoJSON:
-              // [longitude, latitude]
+              // MongoDB GeoJSON = [longitude, latitude]
               coordinates: [lng, lat],
             },
           },
         },
       })
-      .limit(10)
+      .limit(25)
       .project({
         _id: 1,
         county: 1,
@@ -78,28 +71,17 @@ export async function POST(req: NextRequest) {
       .toArray();
 
     return NextResponse.json({
-      searchLocation: {
-        lat,
-        lng,
-      },
-
+      searchLocation: { lat, lng },
       voters,
     });
   } catch (err: any) {
-    console.error(
-      "Nearest voters error:",
-      err
-    );
+    console.error("Nearest voters error:", err);
 
     return NextResponse.json(
       {
-        error:
-          err?.message ||
-          "Failed to find nearest voters",
+        error: err?.message || "Failed to find nearest voters",
       },
-      {
-        status: 500,
-      }
+      { status: 500 },
     );
   }
 }

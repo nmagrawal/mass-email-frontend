@@ -1,7 +1,6 @@
 "use client";
 
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
-
 import { useEffect, useRef } from "react";
 
 export type SearchLocation = {
@@ -11,7 +10,6 @@ export type SearchLocation = {
 
 export type Voter = {
   _id: string;
-
   county?: string;
 
   name?: {
@@ -60,6 +58,7 @@ type Props = {
   searchLocation: SearchLocation;
   searchLabel: string;
   voters: Voter[];
+  routePath?: SearchLocation[];
 };
 
 let googleMapsConfigured = false;
@@ -90,38 +89,24 @@ function getVoterAddress(voter: Voter) {
 
 function createVoterInfoContent(voter: Voter, index: number) {
   const container = document.createElement("div");
-
   container.style.minWidth = "240px";
   container.style.padding = "6px";
 
-  // NAME
-
   const heading = document.createElement("div");
-
   heading.style.fontWeight = "600";
   heading.style.fontSize = "14px";
-
   heading.textContent = `#${index + 1} ${getVoterName(voter)}`;
-
   container.appendChild(heading);
-
-  // ADDRESS
 
   const address = getVoterAddress(voter);
 
   if (address) {
     const addressElement = document.createElement("div");
-
     addressElement.style.marginTop = "6px";
-
     addressElement.style.fontSize = "13px";
-
     addressElement.textContent = address;
-
     container.appendChild(addressElement);
   }
-
-  // CONTACT SECTION
 
   const hasContact =
     voter.contact?.phone_primary ||
@@ -130,114 +115,71 @@ function createVoterInfoContent(voter: Voter, index: number) {
 
   if (hasContact) {
     const contactContainer = document.createElement("div");
-
     contactContainer.style.marginTop = "10px";
-
     contactContainer.style.paddingTop = "8px";
-
     contactContainer.style.borderTop = "1px solid #e5e7eb";
-
-    // PRIMARY PHONE
 
     if (voter.contact?.phone_primary) {
       const phone = document.createElement("a");
-
       phone.href = `tel:${voter.contact.phone_primary}`;
-
       phone.textContent = `📞 ${voter.contact.phone_primary}`;
-
       phone.style.display = "block";
-
       phone.style.marginBottom = "5px";
-
       phone.style.color = "#2563eb";
-
       phone.style.fontSize = "13px";
-
       contactContainer.appendChild(phone);
     }
-
-    // SECONDARY PHONE
 
     if (voter.contact?.phone_secondary) {
       const phone = document.createElement("a");
-
       phone.href = `tel:${voter.contact.phone_secondary}`;
-
       phone.textContent = `📞 ${voter.contact.phone_secondary}`;
-
       phone.style.display = "block";
-
       phone.style.marginBottom = "5px";
-
       phone.style.color = "#2563eb";
-
       phone.style.fontSize = "13px";
-
       contactContainer.appendChild(phone);
     }
 
-    // EMAIL
-
     if (voter.contact?.email) {
       const email = document.createElement("a");
-
       email.href = `mailto:${voter.contact.email}`;
-
       email.textContent = `✉️ ${voter.contact.email}`;
-
       email.style.display = "block";
-
       email.style.color = "#2563eb";
-
       email.style.fontSize = "13px";
-
       email.style.wordBreak = "break-all";
-
       contactContainer.appendChild(email);
     }
 
     container.appendChild(contactContainer);
   }
+
   const metaContainer = document.createElement("div");
-
   metaContainer.style.marginTop = "10px";
-
   metaContainer.style.paddingTop = "8px";
-
   metaContainer.style.borderTop = "1px solid #e5e7eb";
-
   metaContainer.style.fontSize = "12px";
-
   metaContainer.style.color = "#4b5563";
 
   if (voter.registration?.party_abbr) {
     const party = document.createElement("div");
-
     party.textContent = `Party: ${voter.registration.party_abbr}`;
-
     metaContainer.appendChild(party);
   }
 
   if (voter.precinct?.name) {
     const precinct = document.createElement("div");
-
     precinct.textContent = `Precinct: ${voter.precinct.name}`;
-
     metaContainer.appendChild(precinct);
   }
 
   if (voter.flags?.srd2) {
     const district = document.createElement("div");
-
     district.textContent = "District 2";
-
     district.style.fontWeight = "600";
-
     district.style.color = "#2563eb";
-
     district.style.marginTop = "4px";
-
     metaContainer.appendChild(district);
   }
 
@@ -250,6 +192,7 @@ export default function NearestVotersMap({
   searchLocation,
   searchLabel,
   voters,
+  routePath = [],
 }: Props) {
   const mapRef = useRef<HTMLDivElement | null>(null);
 
@@ -265,7 +208,6 @@ export default function NearestVotersMap({
 
       if (!apiKey) {
         console.error("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is missing");
-
         return;
       }
 
@@ -278,17 +220,11 @@ export default function NearestVotersMap({
         googleMapsConfigured = true;
       }
 
-      //
-      // IMPORTANT:
-      // Keep this import style.
-      // This avoids the TypeScript
-      // google namespace problem.
-      //
+      // Keep this direct importLibrary style; it avoids the google namespace
+      // TypeScript problem you hit earlier.
       const [
-        { Map, InfoWindow },
-
+        { Map, InfoWindow, Polyline },
         { AdvancedMarkerElement, PinElement },
-
         { LatLngBounds },
       ] = await Promise.all([
         importLibrary("maps"),
@@ -302,22 +238,15 @@ export default function NearestVotersMap({
 
       const map = new Map(mapRef.current, {
         center: searchLocation,
-
         zoom: 15,
-
         mapId: process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || "DEMO_MAP_ID",
       });
 
       const bounds = new LatLngBounds();
-
-      //
-      // SEARCH LOCATION
-      //
-
       bounds.extend(searchLocation);
 
+      // Search/current-location blue dot.
       const blueDot = document.createElement("div");
-
       blueDot.style.width = "18px";
       blueDot.style.height = "18px";
       blueDot.style.background = "#4285F4";
@@ -328,29 +257,25 @@ export default function NearestVotersMap({
       const searchMarker = new AdvancedMarkerElement({
         map,
         position: searchLocation,
-        title: "Your current location",
+        title: searchLabel || "Start location",
         content: blueDot,
         zIndex: 1000,
         gmpClickable: true,
       });
 
       const searchInfoContent = document.createElement("div");
-
       searchInfoContent.style.padding = "6px";
 
       const searchInfoHeading = document.createElement("div");
       searchInfoHeading.style.fontWeight = "600";
-      searchInfoHeading.textContent = "Your Current Location";
-
+      searchInfoHeading.textContent = "Start Location";
       searchInfoContent.appendChild(searchInfoHeading);
 
       if (searchLabel) {
         const searchInfoLabel = document.createElement("div");
-
         searchInfoLabel.style.marginTop = "5px";
         searchInfoLabel.style.fontSize = "13px";
         searchInfoLabel.textContent = searchLabel;
-
         searchInfoContent.appendChild(searchInfoLabel);
       }
 
@@ -365,65 +290,41 @@ export default function NearestVotersMap({
         });
       });
 
-      //
-      // NEAREST 10 SRD2 RECORDS
-      //
-
+      // Numbered voters. When a walking route is active, the parent passes
+      // voters in Google's optimized walking order, so marker 1 really is
+      // the first walking stop, marker 2 the second, etc.
       voters.forEach((voter, index) => {
         const coordinates = voter.residence?.location?.coordinates;
 
         if (!coordinates || coordinates.length !== 2) {
           console.warn("Missing coordinates:", voter._id);
-
           return;
         }
 
-        //
-        // MongoDB:
-        // [longitude, latitude]
-        //
-
         const [lngRaw, latRaw] = coordinates;
-
         const lat = Number(latRaw);
-
         const lng = Number(lngRaw);
 
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
           console.warn("Invalid coordinates:", voter._id, coordinates);
-
           return;
         }
 
-        const position = {
-          lat,
-          lng,
-        };
-
+        const position = { lat, lng };
         bounds.extend(position);
 
         const name = getVoterName(voter);
 
-        //
-        // Numbered marker:
-        // 1 - 10
-        //
-
         const pin = new PinElement({
           glyphText: String(index + 1),
-
           scale: 1.05,
         });
 
         const marker = new AdvancedMarkerElement({
           map,
-
           position,
-
           title: `#${index + 1} ${name}`,
-
           content: pin,
-
           gmpClickable: true,
         });
 
@@ -439,12 +340,23 @@ export default function NearestVotersMap({
         });
       });
 
-      //
-      // FIT SEARCH LOCATION
-      // + ALL 10 RESULTS
-      //
+      // Actual walking route returned by Google Routes API.
+      if (routePath.length > 1) {
+        new Polyline({
+          map,
+          path: routePath,
+          geodesic: false,
+          strokeColor: "#2563eb",
+          strokeOpacity: 0.9,
+          strokeWeight: 5,
+        });
 
-      if (voters.length > 0) {
+        routePath.forEach((point) => {
+          bounds.extend(point);
+        });
+      }
+
+      if (voters.length > 0 || routePath.length > 1) {
         map.fitBounds(bounds, 60);
       }
     }
@@ -454,19 +366,12 @@ export default function NearestVotersMap({
     return () => {
       cancelled = true;
     };
-  }, [searchLocation, searchLabel, voters]);
+  }, [searchLocation, searchLabel, voters, routePath]);
 
   return (
     <div
       ref={mapRef}
-      className="
-        h-[520px]
-        w-full
-        overflow-hidden
-        rounded-xl
-        border
-        bg-gray-100
-      "
+      className="h-[520px] w-full overflow-hidden rounded-xl border bg-gray-100"
     />
   );
 }

@@ -366,11 +366,12 @@ export default function NearestVotersPage() {
   return (
     <main className="mx-auto max-w-6xl p-6 md:p-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Nearby San Ramon Super Voters</h1>
+        <h1 className="text-3xl font-bold">Nearby San Ramon Voters</h1>
 
         <p className="mt-2 text-gray-600">
-          Find the nearest 25 San Ramon super voters, then create an optimized
-          walking route through all 25 stops.
+          Find the nearest 25 frequent and super voters using your live location
+          or an address, then create an optimized walking route through all 25
+          stops.
         </p>
       </div>
 
@@ -640,6 +641,21 @@ export default function NearestVotersPage() {
                           {voter.flags?.super_voter && (
                             <span className="rounded-full bg-green-50 px-2 py-1 font-medium text-green-700">
                               Super Voter
+                            </span>
+                          )}
+
+                          {voter.flags?.frequent_voter && (
+                            <span
+                              className="
+      rounded-full
+      bg-amber-50
+      px-2
+      py-1
+      font-medium
+      text-amber-700
+    "
+                            >
+                              Frequent Voter
                             </span>
                           )}
 

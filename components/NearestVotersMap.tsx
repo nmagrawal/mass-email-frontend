@@ -51,6 +51,7 @@ export type Voter = {
   flags?: {
     srd2?: boolean;
     super_voter?: boolean;
+    frequent_voter?: boolean;
   };
 };
 
@@ -173,7 +174,33 @@ function createVoterInfoContent(voter: Voter, index: number) {
     precinct.textContent = `Precinct: ${voter.precinct.name}`;
     metaContainer.appendChild(precinct);
   }
+  if (voter.flags?.super_voter) {
+    const voterType = document.createElement("div");
 
+    voterType.textContent = "Super Voter";
+
+    voterType.style.fontWeight = "600";
+
+    voterType.style.color = "#15803d";
+
+    voterType.style.marginTop = "4px";
+
+    metaContainer.appendChild(voterType);
+  }
+
+  if (voter.flags?.frequent_voter) {
+    const voterType = document.createElement("div");
+
+    voterType.textContent = "Frequent Voter";
+
+    voterType.style.fontWeight = "600";
+
+    voterType.style.color = "#b45309";
+
+    voterType.style.marginTop = "4px";
+
+    metaContainer.appendChild(voterType);
+  }
   if (voter.flags?.srd2) {
     const district = document.createElement("div");
     district.textContent = "District 2";

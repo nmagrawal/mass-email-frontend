@@ -30,7 +30,10 @@ export async function POST(req: NextRequest) {
       .collection("voters")
       .find({
         "residence.city": "San Ramon",
-        "flags.super_voter": true,
+  $or: [
+    { "flags.super_voter": true },
+    { "flags.frequent_voter": true },
+  ],
         "residence.location": {
           $near: {
             $geometry: {

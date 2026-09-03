@@ -85,7 +85,10 @@ export async function POST(req: NextRequest) {
         {
           _id: { $in: voterIds },
           "residence.city": "San Ramon",
-          "flags.super_voter": true,
+$or: [
+  { "flags.super_voter": true },
+  { "flags.frequent_voter": true },
+],
           "residence.location": { $exists: true },
         },
         {

@@ -19,72 +19,189 @@ export async function POST(req: NextRequest) {
       lng > 180
     ) {
       return NextResponse.json(
-        { error: "Invalid location coordinates" },
-        { status: 400 },
+        {
+          error: "Invalid location coordinates",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
     const db = await getDb("voter_db_v2");
 
-    const voters = await db
+    const addresses = await db
       .collection("voters")
-      .find({
-        "residence.city": "San Ramon",
-  $or: [
-    { "flags.super_voter": true },
-    { "flags.frequent_voter": true },
-  ],
-        "residence.location": {
-          $near: {
-            $geometry: {
+      .aggregate([
+        {
+          $geoNear: {
+            near: {
               type: "Point",
-              // MongoDB GeoJSON = [longitude, latitude]
               coordinates: [lng, lat],
+            },
+            key: "residence.location",
+            spherical: true,
+            distanceField: "distanceMeters",
+            query: {
+              "residence.city": "San Ramon",
+              $or: [
+                {
+                  "flags.super_voter": true,
+                },
+                {
+                  "flags.frequent_voter": true,
+                },
+              ],
             },
           },
         },
-      })
-      .limit(25)
-      .project({
-        _id: 1,
-        county: 1,
+        {
+          $match: {
+            "residence.address_line1": {
+              $type: "string",
+              $ne: "",
+            },
+          },
+        },
+        {
+          $set: {
+            addressKey: {
+              $concat: [
+                {
+                  $toLower: {
+                    $trim: {
+                      input: {
+                        $ifNull: ["$residence.address_line1", ""],
+                      },
+                    },
+                  },
+                },
+                "|",
+                {
+                  $toLower: {
+                    $trim: {
+                      input: {
+                        $ifNull: ["$residence.address_line2", ""],
+                      },
+                    },
+                  },
+                },
+                "|",
+                {
+                  $toLower: {
+                    $trim: {
+                      input: {
+                        $ifNull: ["$residence.city", ""],
+                      },
+                    },
+                  },
+                },
+                "|",
+                {
+                  $toLower: {
+                    $trim: {
+                      input: {
+                        $ifNull: ["$residence.state", ""],
+                      },
+                    },
+                  },
+                },
+                "|",
+                {
+                  $toString: {
+                    $ifNull: ["$residence.zip", ""],
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: "$addressKey",
 
-        "name.full": 1,
-        "name.first": 1,
-        "name.middle": 1,
-        "name.last": 1,
+            distanceMeters: {
+              $min: "$distanceMeters",
+            },
 
-        contact: 1,
+            representativeVoterId: {
+              $first: "$_id",
+            },
 
-        "residence.address_line1": 1,
-        "residence.address_line2": 1,
-        "residence.city": 1,
-        "residence.state": 1,
-        "residence.zip": 1,
-        "residence.location": 1,
+            address: {
+              $first: {
+                address_line1: "$residence.address_line1",
+                address_line2: "$residence.address_line2",
+                city: "$residence.city",
+                state: "$residence.state",
+                zip: "$residence.zip",
+              },
+            },
 
-        "precinct.id": 1,
-        "precinct.name": 1,
+            location: {
+              $first: "$residence.location",
+            },
 
-        "registration.party_name": 1,
-        "registration.party_abbr": 1,
-
-        flags: 1,
-      })
+            voters: {
+              $push: {
+                _id: "$_id",
+                county: "$county",
+                name: "$name",
+                contact: "$contact",
+                precinct: "$precinct",
+                registration: "$registration",
+                flags: "$flags",
+              },
+            },
+          },
+        },
+        {
+          $set: {
+            voterCount: {
+              $size: "$voters",
+            },
+          },
+        },
+        {
+          $sort: {
+            distanceMeters: 1,
+          },
+        },
+        {
+          $limit: 10,
+        },
+        {
+          $project: {
+            _id: 0,
+            addressKey: "$_id",
+            representativeVoterId: 1,
+            address: 1,
+            location: 1,
+            distanceMeters: 1,
+            voterCount: 1,
+            voters: 1,
+          },
+        },
+      ])
       .toArray();
 
     return NextResponse.json({
-      searchLocation: { lat, lng },
-      voters,
+      searchLocation: {
+        lat,
+        lng,
+      },
+      addresses,
     });
   } catch (err: any) {
-    console.error("Nearest voters error:", err);
+    console.error("Nearest address groups error:", err);
 
     return NextResponse.json(
       {
-        error: err?.message || "Failed to find nearest voters",
+        error: err?.message || "Failed to find nearest addresses",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }

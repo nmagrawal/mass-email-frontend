@@ -25,19 +25,6 @@ export type Voter = {
     email?: string;
   };
 
-  residence?: {
-    address_line1?: string;
-    address_line2?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-
-    location?: {
-      type: "Point";
-      coordinates: [number, number];
-    };
-  };
-
   precinct?: {
     id?: string;
     name?: string;
@@ -55,10 +42,32 @@ export type Voter = {
   };
 };
 
+export type AddressGroup = {
+  addressKey: string;
+  representativeVoterId: string;
+
+  address: {
+    address_line1?: string;
+    address_line2?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+
+  location: {
+    type: "Point";
+    coordinates: [number, number];
+  };
+
+  distanceMeters: number;
+  voterCount: number;
+  voters: Voter[];
+};
+
 type Props = {
   searchLocation: SearchLocation;
   searchLabel: string;
-  voters: Voter[];
+  addressGroups: AddressGroup[];
   routePath?: SearchLocation[];
 };
 
@@ -76,141 +85,128 @@ function getVoterName(voter: Voter) {
   );
 }
 
-function getVoterAddress(voter: Voter) {
+function getAddressText(group: AddressGroup) {
   return [
-    voter.residence?.address_line1,
-    voter.residence?.address_line2,
-    voter.residence?.city,
-    voter.residence?.state,
-    voter.residence?.zip,
+    group.address.address_line1,
+    group.address.address_line2,
+    group.address.city,
+    group.address.state,
+    group.address.zip,
   ]
     .filter(Boolean)
     .join(", ");
 }
 
-function createVoterInfoContent(voter: Voter, index: number) {
+function createAddressInfoContent(group: AddressGroup) {
   const container = document.createElement("div");
-  container.style.minWidth = "240px";
+
+  container.style.minWidth = "280px";
+  container.style.maxWidth = "360px";
   container.style.padding = "6px";
 
   const heading = document.createElement("div");
-  heading.style.fontWeight = "600";
+  heading.style.fontWeight = "700";
   heading.style.fontSize = "14px";
-  heading.textContent = `#${index + 1} ${getVoterName(voter)}`;
+  heading.textContent = getAddressText(group);
   container.appendChild(heading);
 
-  const address = getVoterAddress(voter);
+  const count = document.createElement("div");
+  count.style.marginTop = "4px";
+  count.style.fontSize = "12px";
+  count.style.color = "#6b7280";
+  count.textContent = `${group.voterCount} ${
+    group.voterCount === 1 ? "voter" : "voters"
+  } at this address`;
+  container.appendChild(count);
 
-  if (address) {
-    const addressElement = document.createElement("div");
-    addressElement.style.marginTop = "6px";
-    addressElement.style.fontSize = "13px";
-    addressElement.textContent = address;
-    container.appendChild(addressElement);
-  }
+  group.voters.forEach((voter) => {
+    const voterContainer = document.createElement("div");
 
-  const hasContact =
-    voter.contact?.phone_primary ||
-    voter.contact?.phone_secondary ||
-    voter.contact?.email;
+    voterContainer.style.marginTop = "10px";
+    voterContainer.style.paddingTop = "10px";
+    voterContainer.style.borderTop = "1px solid #e5e7eb";
 
-  if (hasContact) {
-    const contactContainer = document.createElement("div");
-    contactContainer.style.marginTop = "10px";
-    contactContainer.style.paddingTop = "8px";
-    contactContainer.style.borderTop = "1px solid #e5e7eb";
+    const name = document.createElement("div");
+    name.style.fontWeight = "600";
+    name.style.fontSize = "13px";
+    name.textContent = getVoterName(voter);
+    voterContainer.appendChild(name);
 
     if (voter.contact?.phone_primary) {
       const phone = document.createElement("a");
+
       phone.href = `tel:${voter.contact.phone_primary}`;
       phone.textContent = `📞 ${voter.contact.phone_primary}`;
       phone.style.display = "block";
-      phone.style.marginBottom = "5px";
+      phone.style.marginTop = "4px";
+      phone.style.fontSize = "12px";
       phone.style.color = "#2563eb";
-      phone.style.fontSize = "13px";
-      contactContainer.appendChild(phone);
+
+      voterContainer.appendChild(phone);
     }
 
     if (voter.contact?.phone_secondary) {
       const phone = document.createElement("a");
+
       phone.href = `tel:${voter.contact.phone_secondary}`;
       phone.textContent = `📞 ${voter.contact.phone_secondary}`;
       phone.style.display = "block";
-      phone.style.marginBottom = "5px";
+      phone.style.marginTop = "3px";
+      phone.style.fontSize = "12px";
       phone.style.color = "#2563eb";
-      phone.style.fontSize = "13px";
-      contactContainer.appendChild(phone);
+
+      voterContainer.appendChild(phone);
     }
 
     if (voter.contact?.email) {
       const email = document.createElement("a");
+
       email.href = `mailto:${voter.contact.email}`;
       email.textContent = `✉️ ${voter.contact.email}`;
       email.style.display = "block";
+      email.style.marginTop = "3px";
+      email.style.fontSize = "12px";
       email.style.color = "#2563eb";
-      email.style.fontSize = "13px";
       email.style.wordBreak = "break-all";
-      contactContainer.appendChild(email);
+
+      voterContainer.appendChild(email);
     }
 
-    container.appendChild(contactContainer);
-  }
+    const labels: string[] = [];
 
-  const metaContainer = document.createElement("div");
-  metaContainer.style.marginTop = "10px";
-  metaContainer.style.paddingTop = "8px";
-  metaContainer.style.borderTop = "1px solid #e5e7eb";
-  metaContainer.style.fontSize = "12px";
-  metaContainer.style.color = "#4b5563";
+    if (voter.flags?.super_voter) {
+      labels.push("Super Voter");
+    }
 
-  if (voter.registration?.party_abbr) {
-    const party = document.createElement("div");
-    party.textContent = `Party: ${voter.registration.party_abbr}`;
-    metaContainer.appendChild(party);
-  }
+    if (voter.flags?.frequent_voter) {
+      labels.push("Frequent Voter");
+    }
 
-  if (voter.precinct?.name) {
-    const precinct = document.createElement("div");
-    precinct.textContent = `Precinct: ${voter.precinct.name}`;
-    metaContainer.appendChild(precinct);
-  }
-  if (voter.flags?.super_voter) {
-    const voterType = document.createElement("div");
+    if (voter.flags?.srd2) {
+      labels.push("District 2");
+    }
 
-    voterType.textContent = "Super Voter";
+    if (voter.registration?.party_abbr) {
+      labels.push(voter.registration.party_abbr);
+    }
 
-    voterType.style.fontWeight = "600";
+    if (voter.precinct?.name) {
+      labels.push(voter.precinct.name);
+    }
 
-    voterType.style.color = "#15803d";
+    if (labels.length > 0) {
+      const flags = document.createElement("div");
 
-    voterType.style.marginTop = "4px";
+      flags.style.marginTop = "5px";
+      flags.style.fontSize = "11px";
+      flags.style.color = "#4b5563";
+      flags.textContent = labels.join(" • ");
 
-    metaContainer.appendChild(voterType);
-  }
+      voterContainer.appendChild(flags);
+    }
 
-  if (voter.flags?.frequent_voter) {
-    const voterType = document.createElement("div");
-
-    voterType.textContent = "Frequent Voter";
-
-    voterType.style.fontWeight = "600";
-
-    voterType.style.color = "#b45309";
-
-    voterType.style.marginTop = "4px";
-
-    metaContainer.appendChild(voterType);
-  }
-  if (voter.flags?.srd2) {
-    const district = document.createElement("div");
-    district.textContent = "District 2";
-    district.style.fontWeight = "600";
-    district.style.color = "#2563eb";
-    district.style.marginTop = "4px";
-    metaContainer.appendChild(district);
-  }
-
-  container.appendChild(metaContainer);
+    container.appendChild(voterContainer);
+  });
 
   return container;
 }
@@ -218,7 +214,7 @@ function createVoterInfoContent(voter: Voter, index: number) {
 export default function NearestVotersMap({
   searchLocation,
   searchLabel,
-  voters,
+  addressGroups,
   routePath = [],
 }: Props) {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -247,8 +243,6 @@ export default function NearestVotersMap({
         googleMapsConfigured = true;
       }
 
-      // Keep this direct importLibrary style; it avoids the google namespace
-      // TypeScript problem you hit earlier.
       const [
         { Map, InfoWindow, Polyline },
         { AdvancedMarkerElement, PinElement },
@@ -272,8 +266,10 @@ export default function NearestVotersMap({
       const bounds = new LatLngBounds();
       bounds.extend(searchLocation);
 
-      // Search/current-location blue dot.
+      let activeInfoWindow: any = null;
+
       const blueDot = document.createElement("div");
+
       blueDot.style.width = "18px";
       blueDot.style.height = "18px";
       blueDot.style.background = "#4285F4";
@@ -300,9 +296,11 @@ export default function NearestVotersMap({
 
       if (searchLabel) {
         const searchInfoLabel = document.createElement("div");
+
         searchInfoLabel.style.marginTop = "5px";
         searchInfoLabel.style.fontSize = "13px";
         searchInfoLabel.textContent = searchLabel;
+
         searchInfoContent.appendChild(searchInfoLabel);
       }
 
@@ -311,55 +309,71 @@ export default function NearestVotersMap({
       });
 
       searchMarker.addEventListener("gmp-click", () => {
+        if (activeInfoWindow) {
+          activeInfoWindow.close();
+        }
+
+        activeInfoWindow = searchInfo;
+
         searchInfo.open({
           map,
           anchor: searchMarker,
         });
       });
 
-      // Numbered voters. When a walking route is active, the parent passes
-      // voters in Google's optimized walking order, so marker 1 really is
-      // the first walking stop, marker 2 the second, etc.
-      voters.forEach((voter, index) => {
-        const coordinates = voter.residence?.location?.coordinates;
+      addressGroups.forEach((group) => {
+        const coordinates = group.location?.coordinates;
 
         if (!coordinates || coordinates.length !== 2) {
-          console.warn("Missing coordinates:", voter._id);
+          console.warn("Missing coordinates:", group.addressKey);
           return;
         }
 
         const [lngRaw, latRaw] = coordinates;
+
         const lat = Number(latRaw);
         const lng = Number(lngRaw);
 
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          console.warn("Invalid coordinates:", voter._id, coordinates);
+          console.warn("Invalid coordinates:", group.addressKey, coordinates);
           return;
         }
 
-        const position = { lat, lng };
+        const position = {
+          lat,
+          lng,
+        };
+
         bounds.extend(position);
 
-        const name = getVoterName(voter);
+        const address = getAddressText(group);
 
         const pin = new PinElement({
-          glyphText: String(index + 1),
-          scale: 1.05,
+          glyphText: String(group.voterCount),
+          scale: group.voterCount > 1 ? 1.2 : 1.05,
         });
 
         const marker = new AdvancedMarkerElement({
           map,
           position,
-          title: `#${index + 1} ${name}`,
+          title: `${group.voterCount} voter${
+            group.voterCount === 1 ? "" : "s"
+          } — ${address}`,
           content: pin,
           gmpClickable: true,
         });
 
         const infoWindow = new InfoWindow({
-          content: createVoterInfoContent(voter, index),
+          content: createAddressInfoContent(group),
         });
 
         marker.addEventListener("gmp-click", () => {
+          if (activeInfoWindow) {
+            activeInfoWindow.close();
+          }
+
+          activeInfoWindow = infoWindow;
+
           infoWindow.open({
             map,
             anchor: marker,
@@ -367,7 +381,6 @@ export default function NearestVotersMap({
         });
       });
 
-      // Actual walking route returned by Google Routes API.
       if (routePath.length > 1) {
         new Polyline({
           map,
@@ -383,7 +396,7 @@ export default function NearestVotersMap({
         });
       }
 
-      if (voters.length > 0 || routePath.length > 1) {
+      if (addressGroups.length > 0 || routePath.length > 1) {
         map.fitBounds(bounds, 60);
       }
     }
@@ -393,7 +406,7 @@ export default function NearestVotersMap({
     return () => {
       cancelled = true;
     };
-  }, [searchLocation, searchLabel, voters, routePath]);
+  }, [searchLocation, searchLabel, addressGroups, routePath]);
 
   return (
     <div

@@ -3,12 +3,13 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import NearestVotersMap, {
+  type AddressGroup,
   type SearchLocation,
   type Voter,
 } from "@/components/NearestVotersMap";
 
 const REFRESH_DISTANCE_METERS = 40;
-const MAX_ROUTE_STOPS = 25;
+const MAX_ROUTE_STOPS = 10;
 
 type RouteLeg = {
   distanceMeters: number;
@@ -36,13 +37,13 @@ function getVoterName(voter: Voter) {
   );
 }
 
-function getVoterAddress(voter: Voter) {
+function getAddressText(group: AddressGroup) {
   return [
-    voter.residence?.address_line1,
-    voter.residence?.address_line2,
-    voter.residence?.city,
-    voter.residence?.state,
-    voter.residence?.zip,
+    group.address.address_line1,
+    group.address.address_line2,
+    group.address.city,
+    group.address.state,
+    group.address.zip,
   ]
     .filter(Boolean)
     .join(", ");
@@ -66,8 +67,8 @@ function distanceInMeters(a: SearchLocation, b: SearchLocation) {
   return earthRadius * angle;
 }
 
-function formatMiles(meters: number) {
-  return (meters / 1609.344).toFixed(1);
+function formatMiles(meters: number, decimals = 1) {
+  return (meters / 1609.344).toFixed(decimals);
 }
 
 function formatDuration(seconds: number) {
@@ -84,10 +85,12 @@ function formatDuration(seconds: number) {
 }
 
 export default function NearestVotersPage() {
-  const [voters, setVoters] = useState<Voter[]>([]);
+  const [addressGroups, setAddressGroups] = useState<AddressGroup[]>([]);
+
   const [searchLocation, setSearchLocation] = useState<SearchLocation | null>(
     null,
   );
+
   const [searchLabel, setSearchLabel] = useState("");
   const [address, setAddress] = useState("");
 
@@ -104,21 +107,21 @@ export default function NearestVotersPage() {
   const nearestQueryInFlightRef = useRef(false);
   const walkingRouteActiveRef = useRef(false);
 
-  // Keep the original nearest-25 array untouched. While a route is active,
-  // derive a separate display order from Google's optimized voter IDs.
-  const displayVoters = useMemo(() => {
+  const displayAddressGroups = useMemo(() => {
     if (!walkingRoute) {
-      return voters;
+      return addressGroups;
     }
 
-    const voterById = new Map(voters.map((voter) => [voter._id, voter]));
+    const groupByRepresentativeId = new Map(
+      addressGroups.map((group) => [group.representativeVoterId, group]),
+    );
 
     const ordered = walkingRoute.orderedVoterIds
-      .map((id) => voterById.get(id))
-      .filter((voter): voter is Voter => Boolean(voter));
+      .map((id) => groupByRepresentativeId.get(id))
+      .filter((group): group is AddressGroup => Boolean(group));
 
-    return ordered.length === voters.length ? ordered : voters;
-  }, [voters, walkingRoute]);
+    return ordered.length === addressGroups.length ? ordered : addressGroups;
+  }, [addressGroups, walkingRoute]);
 
   function clearWalkingRoute() {
     walkingRouteActiveRef.current = false;
@@ -146,7 +149,7 @@ export default function NearestVotersPage() {
     };
   }, []);
 
-  async function fetchNearestVoters(lat: number, lng: number) {
+  async function fetchNearestAddresses(lat: number, lng: number) {
     const response = await fetch("/api/nearest-voters", {
       method: "POST",
       headers: {
@@ -158,13 +161,12 @@ export default function NearestVotersPage() {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "Could not find nearby voters");
+      throw new Error(data.error || "Could not find nearby addresses");
     }
 
-    // A fresh nearest-25 search invalidates an older planned route.
     walkingRouteActiveRef.current = false;
     setWalkingRoute(null);
-    setVoters(data.voters || []);
+    setAddressGroups(Array.isArray(data.addresses) ? data.addresses : []);
   }
 
   function useCurrentLocation() {
@@ -189,12 +191,9 @@ export default function NearestVotersPage() {
           lng: position.coords.longitude,
         };
 
-        // Always move the blue dot in real time.
         setSearchLocation(currentLocation);
         setSearchLabel("Your current location");
 
-        // While following a planned route, do not replace its 25 stops just
-        // because GPS moved. The blue dot still updates normally.
         if (walkingRouteActiveRef.current) {
           setLoadingLocation(false);
           return;
@@ -219,12 +218,13 @@ export default function NearestVotersPage() {
         nearestQueryInFlightRef.current = true;
 
         try {
-          await fetchNearestVoters(currentLocation.lat, currentLocation.lng);
+          await fetchNearestAddresses(currentLocation.lat, currentLocation.lng);
+
           lastQueriedLocationRef.current = currentLocation;
           setLoadingLocation(false);
         } catch (err: any) {
           setLoadingLocation(false);
-          setError(err?.message || "Could not find nearby voters");
+          setError(err?.message || "Could not find nearby addresses");
         } finally {
           nearestQueryInFlightRef.current = false;
         }
@@ -275,7 +275,7 @@ export default function NearestVotersPage() {
     clearWalkingRoute();
 
     setLoadingAddress(true);
-    setVoters([]);
+    setAddressGroups([]);
 
     try {
       const response = await fetch("/api/geocode-address", {
@@ -302,7 +302,7 @@ export default function NearestVotersPage() {
       setSearchLocation(location);
       setSearchLabel(data.formattedAddress || cleanAddress);
 
-      await fetchNearestVoters(location.lat, location.lng);
+      await fetchNearestAddresses(location.lat, location.lng);
       lastQueriedLocationRef.current = location;
     } catch (err: any) {
       setError(err?.message || "Could not search address");
@@ -312,7 +312,7 @@ export default function NearestVotersPage() {
   }
 
   async function createWalkingRoute() {
-    if (!searchLocation || voters.length === 0) {
+    if (!searchLocation || addressGroups.length === 0) {
       return;
     }
 
@@ -320,7 +320,11 @@ export default function NearestVotersPage() {
     setError("");
 
     try {
-      const routeVoters = voters.slice(0, MAX_ROUTE_STOPS);
+      const routeGroups = addressGroups.slice(0, MAX_ROUTE_STOPS);
+
+      const voterIds = routeGroups
+        .map((group) => group.representativeVoterId)
+        .filter(Boolean);
 
       const response = await fetch("/api/walking-route", {
         method: "POST",
@@ -329,7 +333,7 @@ export default function NearestVotersPage() {
         },
         body: JSON.stringify({
           origin: searchLocation,
-          voterIds: routeVoters.map((voter) => voter._id),
+          voterIds,
         }),
       });
 
@@ -342,7 +346,7 @@ export default function NearestVotersPage() {
       const route: WalkingRoute = {
         orderedVoterIds: Array.isArray(data.orderedVoterIds)
           ? data.orderedVoterIds
-          : routeVoters.map((voter) => voter._id),
+          : voterIds,
         routePath: Array.isArray(data.routePath) ? data.routePath : [],
         distanceMeters: Number(data.distanceMeters || 0),
         durationSeconds: Number(data.durationSeconds || 0),
@@ -369,9 +373,8 @@ export default function NearestVotersPage() {
         <h1 className="text-3xl font-bold">Nearby San Ramon Voters</h1>
 
         <p className="mt-2 text-gray-600">
-          Find the nearest 25 frequent and super voters using your live location
-          or an address, then create an optimized walking route through all 25
-          stops.
+          Find the nearest 10 addresses containing frequent or super voters,
+          then create an optimized walking route through those households.
         </p>
       </div>
 
@@ -449,20 +452,23 @@ export default function NearestVotersPage() {
         </div>
       )}
 
-      {searchLocation && !isSearchLoading && voters.length === 0 && !error && (
-        <div className="mt-8 rounded-xl border p-5 text-gray-600">
-          No nearby San Ramon super voters were found.
-        </div>
-      )}
+      {searchLocation &&
+        !isSearchLoading &&
+        addressGroups.length === 0 &&
+        !error && (
+          <div className="mt-8 rounded-xl border p-5 text-gray-600">
+            No nearby San Ramon frequent or super voter addresses were found.
+          </div>
+        )}
 
-      {searchLocation && voters.length > 0 && (
+      {searchLocation && addressGroups.length > 0 && (
         <>
           <div className="mt-8 mb-3">
             <div className="flex items-center gap-2 text-sm text-gray-500">
               {liveTracking && (
                 <span className="h-2 w-2 rounded-full bg-blue-500" />
               )}
-              Showing nearest records to
+              Showing nearest addresses to
             </div>
 
             <div className="font-semibold">{searchLabel}</div>
@@ -472,7 +478,7 @@ export default function NearestVotersPage() {
             <button
               type="button"
               onClick={createWalkingRoute}
-              disabled={loadingRoute || voters.length === 0}
+              disabled={loadingRoute || addressGroups.length === 0}
               className="rounded-lg bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loadingRoute
@@ -480,7 +486,7 @@ export default function NearestVotersPage() {
                 : walkingRoute
                   ? "Recalculate Walking Route"
                   : `🚶 Create Walking Route (${Math.min(
-                      voters.length,
+                      addressGroups.length,
                       MAX_ROUTE_STOPS,
                     )} stops)`}
             </button>
@@ -514,8 +520,10 @@ export default function NearestVotersPage() {
                 </div>
 
                 <div>
-                  <div className="text-xs text-gray-500">Stops</div>
-                  <div className="font-semibold">{displayVoters.length}</div>
+                  <div className="text-xs text-gray-500">Address stops</div>
+                  <div className="font-semibold">
+                    {displayAddressGroups.length}
+                  </div>
                 </div>
 
                 <div>
@@ -540,7 +548,7 @@ export default function NearestVotersPage() {
           <NearestVotersMap
             searchLocation={searchLocation}
             searchLabel={searchLabel}
-            voters={displayVoters}
+            addressGroups={displayAddressGroups}
             routePath={walkingRoute?.routePath || []}
           />
 
@@ -549,7 +557,7 @@ export default function NearestVotersPage() {
               <h2 className="text-xl font-semibold">
                 {walkingRoute
                   ? "Walking Order"
-                  : `Nearest ${displayVoters.length}`}
+                  : `Nearest ${displayAddressGroups.length} Addresses`}
               </h2>
 
               {liveTracking && !walkingRoute && (
@@ -565,122 +573,138 @@ export default function NearestVotersPage() {
               )}
             </div>
 
-            <div className="space-y-3">
-              {displayVoters.map((voter, index) => {
-                const name = getVoterName(voter);
-                const voterAddress = getVoterAddress(voter);
+            <div className="space-y-4">
+              {displayAddressGroups.map((group, index) => {
+                const addressText = getAddressText(group);
                 const leg = walkingRoute?.legs?.[index];
 
                 return (
                   <div
-                    key={voter._id}
-                    className="rounded-xl border bg-white p-4"
+                    key={group.addressKey}
+                    className="rounded-xl border bg-white p-5"
                   >
-                    <div className="flex gap-4">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black text-sm font-semibold text-white">
-                        {index + 1}
-                      </div>
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                          {walkingRoute
+                            ? `Stop ${index + 1}`
+                            : `Address ${index + 1}`}
+                        </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold">{name}</div>
+                        <div className="mt-1 text-lg font-semibold">
+                          {addressText}
+                        </div>
 
-                        {walkingRoute && leg && (
+                        {walkingRoute && leg ? (
                           <div className="mt-1 text-xs font-medium text-blue-700">
                             {index === 0 ? "From start" : "From previous stop"}:{" "}
                             {(leg.distanceMeters / 1609.344).toFixed(2)} mi ·{" "}
                             {formatDuration(leg.durationSeconds)}
                           </div>
-                        )}
-
-                        <div className="mt-1 text-sm text-gray-600">
-                          {voterAddress}
-                        </div>
-
-                        {(voter.contact?.phone_primary ||
-                          voter.contact?.phone_secondary ||
-                          voter.contact?.email) && (
-                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
-                            {voter.contact?.phone_primary && (
-                              <a
-                                href={`tel:${voter.contact.phone_primary}`}
-                                className="font-medium text-blue-600 hover:underline"
-                              >
-                                📞 {voter.contact.phone_primary}
-                              </a>
-                            )}
-
-                            {voter.contact?.phone_secondary && (
-                              <a
-                                href={`tel:${voter.contact.phone_secondary}`}
-                                className="font-medium text-blue-600 hover:underline"
-                              >
-                                📞 {voter.contact.phone_secondary}
-                              </a>
-                            )}
-
-                            {voter.contact?.email && (
-                              <a
-                                href={`mailto:${voter.contact.email}`}
-                                className="break-all font-medium text-blue-600 hover:underline"
-                              >
-                                ✉️ {voter.contact.email}
-                              </a>
-                            )}
+                        ) : (
+                          <div className="mt-1 text-sm text-gray-500">
+                            {formatMiles(group.distanceMeters, 2)} miles away
                           </div>
                         )}
+                      </div>
 
-                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-500">
-                          {voter.precinct?.name && (
-                            <span>Precinct: {voter.precinct.name}</span>
-                          )}
-
-                          {voter.registration?.party_abbr && (
-                            <span>Party: {voter.registration.party_abbr}</span>
-                          )}
-
-                          {voter.flags?.super_voter && (
-                            <span className="rounded-full bg-green-50 px-2 py-1 font-medium text-green-700">
-                              Super Voter
-                            </span>
-                          )}
-
-                          {voter.flags?.frequent_voter && (
-                            <span
-                              className="
-      rounded-full
-      bg-amber-50
-      px-2
-      py-1
-      font-medium
-      text-amber-700
-    "
-                            >
-                              Frequent Voter
-                            </span>
-                          )}
-
-                          {voter.flags?.srd2 && (
-                            <span className="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">
-                              District 2
-                            </span>
-                          )}
-                        </div>
-
-                        {voterAddress && (
-                          <a
-                            href={
-                              `https://www.google.com/maps/search/?api=1&query=` +
-                              encodeURIComponent(voterAddress)
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-3 inline-block text-sm font-medium underline underline-offset-2"
-                          >
-                            Open in Google Maps
-                          </a>
-                        )}
+                      <div className="shrink-0 rounded-full bg-black px-3 py-1 text-sm font-semibold text-white">
+                        {group.voterCount}{" "}
+                        {group.voterCount === 1 ? "voter" : "voters"}
                       </div>
                     </div>
+
+                    <div className="mt-5 divide-y">
+                      {group.voters.map((voter) => (
+                        <div
+                          key={voter._id}
+                          className="py-4 first:pt-0 last:pb-0"
+                        >
+                          <div className="font-medium">
+                            {getVoterName(voter)}
+                          </div>
+
+                          {(voter.contact?.phone_primary ||
+                            voter.contact?.phone_secondary ||
+                            voter.contact?.email) && (
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                              {voter.contact?.phone_primary && (
+                                <a
+                                  href={`tel:${voter.contact.phone_primary}`}
+                                  className="font-medium text-blue-600 hover:underline"
+                                >
+                                  📞 {voter.contact.phone_primary}
+                                </a>
+                              )}
+
+                              {voter.contact?.phone_secondary && (
+                                <a
+                                  href={`tel:${voter.contact.phone_secondary}`}
+                                  className="font-medium text-blue-600 hover:underline"
+                                >
+                                  📞 {voter.contact.phone_secondary}
+                                </a>
+                              )}
+
+                              {voter.contact?.email && (
+                                <a
+                                  href={`mailto:${voter.contact.email}`}
+                                  className="break-all font-medium text-blue-600 hover:underline"
+                                >
+                                  ✉️ {voter.contact.email}
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            {voter.precinct?.name && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-600">
+                                Precinct: {voter.precinct.name}
+                              </span>
+                            )}
+
+                            {voter.registration?.party_abbr && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-600">
+                                {voter.registration.party_abbr}
+                              </span>
+                            )}
+
+                            {voter.flags?.super_voter && (
+                              <span className="rounded-full bg-green-50 px-2 py-1 font-medium text-green-700">
+                                Super Voter
+                              </span>
+                            )}
+
+                            {voter.flags?.frequent_voter && (
+                              <span className="rounded-full bg-amber-50 px-2 py-1 font-medium text-amber-700">
+                                Frequent Voter
+                              </span>
+                            )}
+
+                            {voter.flags?.srd2 && (
+                              <span className="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">
+                                District 2
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {addressText && (
+                      <a
+                        href={
+                          `https://www.google.com/maps/search/?api=1&query=` +
+                          encodeURIComponent(addressText)
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-5 inline-block text-sm font-medium underline underline-offset-2"
+                      >
+                        Open address in Google Maps
+                      </a>
+                    )}
                   </div>
                 );
               })}

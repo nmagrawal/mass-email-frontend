@@ -2,24 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/api/mongo";
 
 export const runtime = "nodejs";
+type RouteVoterDocument = {
+  _id: string;
 
+  residence?: {
+    city?: string;
+
+    location?: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+  };
+
+  flags?: {
+    super_voter?: boolean;
+    frequent_voter?: boolean;
+  };
+};
 type Coordinate = {
   lat: number;
   lng: number;
-};
-
-type RouteVoterDocument = {
-  _id: string;
-  residence?: {
-    city?: string;
-    location?: {
-      type?: string;
-      coordinates?: [number, number];
-    };
-  };
-  flags?: {
-    super_voter?: boolean;
-  };
 };
 
 function durationToSeconds(duration?: string) {
@@ -27,7 +29,7 @@ function durationToSeconds(duration?: string) {
     return 0;
   }
 
-  return Number(duration.replace(/s$/, "")) || 0;
+  return Number(duration.replace("s", "")) || 0;
 }
 
 export async function POST(req: NextRequest) {
@@ -38,7 +40,7 @@ export async function POST(req: NextRequest) {
     const lng = Number(body.origin?.lng);
 
     const voterIds: string[] = Array.isArray(body.voterIds)
-      ? body.voterIds.filter((id: unknown): id is string => typeof id === "string")
+      ? body.voterIds
       : [];
 
     if (
@@ -50,22 +52,34 @@ export async function POST(req: NextRequest) {
       lng > 180
     ) {
       return NextResponse.json(
-        { error: "Invalid starting location" },
-        { status: 400 },
+        {
+          error: "Invalid starting location",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
     if (voterIds.length < 1) {
       return NextResponse.json(
-        { error: "No voters were provided" },
-        { status: 400 },
+        {
+          error: "No address stops were provided",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    if (voterIds.length > 25) {
+    if (voterIds.length > 10) {
       return NextResponse.json(
-        { error: "Maximum 25 voters per route" },
-        { status: 400 },
+        {
+          error: "Maximum 10 address stops per route",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -76,20 +90,26 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getDb("voter_db_v2");
-    const votersCollection = db.collection<RouteVoterDocument>("voters");
 
-    // Re-read coordinates from MongoDB rather than trusting coordinates
-    // supplied by the browser.
-    const docs = await votersCollection
+    const docs = await db
+      .collection<RouteVoterDocument>("voters")
       .find(
         {
-          _id: { $in: voterIds },
+          _id: {
+            $in: voterIds,
+          },
           "residence.city": "San Ramon",
-$or: [
-  { "flags.super_voter": true },
-  { "flags.frequent_voter": true },
-],
-          "residence.location": { $exists: true },
+          $or: [
+            {
+              "flags.super_voter": true,
+            },
+            {
+              "flags.frequent_voter": true,
+            },
+          ],
+          "residence.location": {
+            $exists: true,
+          },
         },
         {
           projection: {
@@ -100,35 +120,38 @@ $or: [
       )
       .toArray();
 
-    const voterMap = new Map(docs.map((voter) => [String(voter._id), voter]));
+    const voterMap = new Map(
+      docs.map((voter) => [String(voter._id), voter]),
+    );
 
     const orderedDocs = voterIds
       .map((id) => voterMap.get(id))
-      .filter((voter): voter is RouteVoterDocument => Boolean(voter));
+      .filter(Boolean);
 
     if (orderedDocs.length !== voterIds.length) {
       return NextResponse.json(
         {
           error:
-            "One or more voters no longer have valid San Ramon coordinates",
+            "One or more address stops no longer have valid San Ramon coordinates",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    const intermediates = orderedDocs.map((voter) => {
+    const intermediates = orderedDocs.map((voter: any) => {
       const coordinates = voter.residence?.location?.coordinates;
 
       if (!coordinates || coordinates.length !== 2) {
-        throw new Error(`Missing coordinates for voter ${voter._id}`);
+        throw new Error(`Missing coordinates for ${String(voter._id)}`);
       }
 
-      // MongoDB GeoJSON = [longitude, latitude]
       const stopLng = Number(coordinates[0]);
       const stopLat = Number(coordinates[1]);
 
       if (!Number.isFinite(stopLat) || !Number.isFinite(stopLng)) {
-        throw new Error(`Invalid coordinates for voter ${voter._id}`);
+        throw new Error(`Invalid coordinates for ${String(voter._id)}`);
       }
 
       return {
@@ -141,9 +164,6 @@ $or: [
       };
     });
 
-    // Round trip:
-    // start -> 25 optimized voter stops -> return to start.
-    // Because all voters are intermediates, Google can optimize all 25.
     const googleBody = {
       origin: {
         location: {
@@ -153,6 +173,7 @@ $or: [
           },
         },
       },
+
       destination: {
         location: {
           latLng: {
@@ -161,11 +182,17 @@ $or: [
           },
         },
       },
+
       intermediates,
+
       travelMode: "WALK",
+
       optimizeWaypointOrder: true,
+
       polylineQuality: "HIGH_QUALITY",
+
       polylineEncoding: "GEO_JSON_LINESTRING",
+
       units: "IMPERIAL",
     };
 
@@ -173,9 +200,11 @@ $or: [
       "https://routes.googleapis.com/directions/v2:computeRoutes",
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
+          "X-Server-Timeout": "10",
           "X-Goog-FieldMask": [
             "routes.distanceMeters",
             "routes.duration",
@@ -186,6 +215,7 @@ $or: [
             "routes.warnings",
           ].join(","),
         },
+
         body: JSON.stringify(googleBody),
       },
     );
@@ -201,7 +231,9 @@ $or: [
             data?.error?.message ||
             "Google could not create the walking route",
         },
-        { status: 500 },
+        {
+          status: 500,
+        },
       );
     }
 
@@ -209,14 +241,18 @@ $or: [
 
     if (!route) {
       return NextResponse.json(
-        { error: "No walking route was found" },
-        { status: 404 },
+        {
+          error: "No walking route was found",
+        },
+        {
+          status: 404,
+        },
       );
     }
 
-    // Google returns indexes into the original intermediates array.
     const optimizedIndexes: number[] =
-      route.optimizedIntermediateWaypointIndex?.length === voterIds.length
+      Array.isArray(route.optimizedIntermediateWaypointIndex) &&
+      route.optimizedIntermediateWaypointIndex.length === voterIds.length
         ? route.optimizedIntermediateWaypointIndex
         : voterIds.map((_, index) => index);
 
@@ -224,14 +260,14 @@ $or: [
       (index) => voterIds[index],
     );
 
-    // GeoJSON LineString is [lng, lat]. Convert it to { lat, lng }
-    // for the Google Maps JavaScript Polyline.
-    const routePath: Coordinate[] = (
-      route.polyline?.geoJsonLinestring?.coordinates || []
-    ).map((coordinate: number[]) => ({
-      lat: Number(coordinate[1]),
-      lng: Number(coordinate[0]),
-    }));
+    const geoJson = route.polyline?.geoJsonLinestring;
+
+    const routePath: Coordinate[] = (geoJson?.coordinates || []).map(
+      (coordinate: number[]) => ({
+        lng: Number(coordinate[0]),
+        lat: Number(coordinate[1]),
+      }),
+    );
 
     const legs = (route.legs || []).map((leg: any) => ({
       distanceMeters: Number(leg.distanceMeters || 0),
@@ -245,6 +281,7 @@ $or: [
       durationSeconds: durationToSeconds(route.duration),
       legs,
       warnings: Array.isArray(route.warnings) ? route.warnings : [],
+      returnLeg: legs.length ? legs[legs.length - 1] : null,
     });
   } catch (err: any) {
     console.error("Walking route error:", err);
@@ -253,7 +290,9 @@ $or: [
       {
         error: err?.message || "Failed to create walking route",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }

@@ -1,4 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
+
 import { getDb } from "@/lib/api/mongo";
 
 export const runtime = "nodejs";
@@ -39,6 +41,26 @@ type VoterDocument = {
   };
 };
 
+type AuditUser = {
+  clerk_user_id: string;
+  name: string;
+};
+
+type VoterInteractionDocument = {
+  voter_id: string;
+  address_key?: string;
+  visited?: boolean;
+  contacted?: {
+    phone?: boolean;
+    email?: boolean;
+  };
+  notes?: string;
+  created_by?: AuditUser;
+  created_at?: Date;
+  updated_by?: AuditUser;
+  updated_at?: Date;
+};
+
 type AddressInput = {
   address_line1?: unknown;
   address_line2?: unknown;
@@ -50,6 +72,7 @@ type AddressInput = {
 type Body = {
   voterIds?: unknown;
   address?: AddressInput;
+  addressKey?: unknown;
 };
 
 function cleanOptionalString(value: unknown) {
@@ -58,6 +81,15 @@ function cleanOptionalString(value: unknown) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { isAuthenticated } = await auth();
+
+    if (!isAuthenticated) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
     const body = (await req.json()) as Body;
 
     const voterIds = Array.isArray(body.voterIds)
@@ -79,6 +111,7 @@ export async function POST(req: NextRequest) {
     const city = cleanOptionalString(body.address?.city) || "San Ramon";
     const state = cleanOptionalString(body.address?.state);
     const zip = cleanOptionalString(body.address?.zip);
+    const addressKey = cleanOptionalString(body.addressKey);
 
     if (voterIds.length === 0 && !addressLine1) {
       return NextResponse.json(
@@ -101,7 +134,8 @@ export async function POST(req: NextRequest) {
     let voters: VoterDocument[] = [];
 
     /*
-     * Preferred fast path: lookup the household members by _id.
+     * Fast path: use the viewport-provided voter IDs so MongoDB can use the
+     * built-in _id index.
      */
     if (voterIds.length > 0) {
       voters = await collection
@@ -133,9 +167,7 @@ export async function POST(req: NextRequest) {
     }
 
     /*
-     * Defensive fallback. If an old/stale viewport response did not contain
-     * voterIds, or an ID no longer resolves, use the exact structured address.
-     * This keeps the UI working while the optimized ID path remains primary.
+     * Defensive fallback for old/stale viewport payloads without voter IDs.
      */
     if (voters.length === 0 && addressLine1) {
       const addressFilter: Record<string, any> = {
@@ -197,9 +229,67 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const resolvedVoterIds = voters.map((voter) => voter._id);
+
+    /*
+     * Shared interaction status: do NOT filter by Clerk user.
+     */
+    const interactions = await db
+      .collection<VoterInteractionDocument>("voter_interactions")
+      .find({
+        voter_id: {
+          $in: resolvedVoterIds,
+        },
+      })
+      .toArray();
+
+    const interactionByVoterId = new Map<string, VoterInteractionDocument>(
+      interactions.map(
+        (interaction): [string, VoterInteractionDocument] => [
+          interaction.voter_id,
+          interaction,
+        ],
+      ),
+    );
+
+    const votersWithInteractions = voters.map((voter) => {
+      const interaction = interactionByVoterId.get(voter._id);
+
+      return {
+        ...voter,
+        interaction: {
+          visited: interaction?.visited ?? false,
+          contacted: {
+            phone: interaction?.contacted?.phone ?? false,
+            email: interaction?.contacted?.email ?? false,
+          },
+          notes: interaction?.notes ?? "",
+          createdBy: interaction?.created_by
+            ? {
+                clerkUserId: interaction.created_by.clerk_user_id,
+                name: interaction.created_by.name,
+              }
+            : null,
+          createdAt: interaction?.created_at
+            ? interaction.created_at.toISOString()
+            : null,
+          updatedBy: interaction?.updated_by
+            ? {
+                clerkUserId: interaction.updated_by.clerk_user_id,
+                name: interaction.updated_by.name,
+              }
+            : null,
+          updatedAt: interaction?.updated_at
+            ? interaction.updated_at.toISOString()
+            : null,
+        },
+      };
+    });
+
     const firstResidence = voters[0]?.residence || {};
 
     return NextResponse.json({
+      addressKey,
       voterCount: voters.length,
       address: {
         address_line1: firstResidence.address_line1,
@@ -208,7 +298,7 @@ export async function POST(req: NextRequest) {
         state: firstResidence.state,
         zip: firstResidence.zip,
       },
-      voters,
+      voters: votersWithInteractions,
     });
   } catch (err: any) {
     console.error("Address voters error:", err);

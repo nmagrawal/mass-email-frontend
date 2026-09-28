@@ -1,5 +1,6 @@
 "use client";
 
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { Check, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -16,6 +17,7 @@ const tabs = [
   { label: "Texting", href: "/mass-texting" },
   { label: "SMS HUB", href: "/sms-hub" },
   { label: "Nearest Voters", href: "/nearest-voters" },
+  { label: "Explore Voters", href: "/explore-voters" },
   { label: "Opgov Users", href: "/voters" },
   { label: "Public Speakers", href: "/public_speakers" },
   { label: "Inbound Messages", href: "/inbound-messages" },
@@ -32,8 +34,8 @@ export function AppBar() {
   return (
     <nav className="w-full border-b bg-background/80 backdrop-blur sticky top-0 z-40">
       <div className="max-w-4xl mx-auto px-4">
-        <div className="flex items-center h-14">
-          <div className="hidden gap-1 md:flex">
+        <div className="flex items-center h-14 gap-2">
+          <div className="hidden flex-1 gap-1 md:flex">
             {tabs.map((tab) => (
               <Link
                 key={tab.href}
@@ -51,7 +53,7 @@ export function AppBar() {
             ))}
           </div>
 
-          <div className="w-full md:hidden">
+          <div className="flex-1 md:hidden">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -87,6 +89,22 @@ export function AppBar() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <Show when="signed-out">
+              <SignInButton mode="modal">
+                <Button size="sm" variant="outline">
+                  Sign in
+                </Button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <Button size="sm">Sign up</Button>
+              </SignUpButton>
+            </Show>
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
           </div>
         </div>
       </div>

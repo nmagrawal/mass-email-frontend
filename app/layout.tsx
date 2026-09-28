@@ -1,3 +1,5 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
@@ -38,11 +40,13 @@ export default function RootLayout({
   // Use a client-side hook for active tab detection
   // This must be inside a Client Component, so we wrap the AppBar in a Client Component below
   return (
-    <html lang="en" className="bg-background">
+    <html lang="en" className="bg-background" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <AppBar />
-        {children}
-        {process.env.NODE_ENV === "production" && <Analytics />}
+        <ClerkProvider appearance={{ theme: shadcn }}>
+          <AppBar />
+          {children}
+          {process.env.NODE_ENV === "production" && <Analytics />}
+        </ClerkProvider>
       </body>
     </html>
   );

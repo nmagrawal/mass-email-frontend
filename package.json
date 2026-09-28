@@ -9,6 +9,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.7",
+    "@clerk/ui": "^1.36.0",
     "@googlemaps/js-api-loader": "^2.1.1",
     "@googlemaps/markerclusterer": "^2.6.2",
     "@hookform/resolvers": "^3.9.1",

@@ -15,7 +15,7 @@ export type ExploreMapStats = {
 
 type AddressSummary = {
   addressKey: string;
-  voterIds: string[];
+  voterIds?: string[];
 
   address: {
     address_line1?: string;
@@ -388,11 +388,10 @@ export default function ExploreVotersMap({
           const clusterMarker = new AdvancedMarkerElement({
             position: cluster.position,
             title: `${totalVoters} eligible voters`,
+            content: bubble,
             zIndex: 1000 + totalVoters,
             gmpClickable: true,
           });
-
-          clusterMarker.append(bubble);
 
           return clusterMarker as any;
         },
@@ -448,7 +447,8 @@ export default function ExploreVotersMap({
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              voterIds: address.voterIds,
+              voterIds: Array.isArray(address.voterIds) ? address.voterIds : [],
+              address: address.address,
             }),
             signal: controller.signal,
           });
@@ -512,10 +512,9 @@ export default function ExploreVotersMap({
               title: `${address.voterCount} ${
                 address.voterCount === 1 ? "voter" : "voters"
               } — ${getAddressText(address.address)}`,
+              content: pin,
               gmpClickable: true,
             });
-
-            marker.append(pin);
 
             /*
              * Custom metadata consumed by the cluster renderer.

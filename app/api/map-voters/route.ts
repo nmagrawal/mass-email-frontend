@@ -37,20 +37,11 @@ export async function POST(req: NextRequest) {
       south >= north
     ) {
       return NextResponse.json(
-        {
-          error: "Invalid map bounds",
-        },
-        {
-          status: 400,
-        },
+        { error: "Invalid map bounds" },
+        { status: 400 },
       );
     }
 
-    /*
-     * San Ramon does not cross the international date line. If the viewport
-     * somehow does, use the world longitude range and let the city filter keep
-     * results restricted to San Ramon.
-     */
     const polygonWest = west <= east ? west : -180;
     const polygonEast = west <= east ? east : 180;
 
@@ -62,16 +53,10 @@ export async function POST(req: NextRequest) {
         {
           $match: {
             "residence.city": "San Ramon",
-
             $or: [
-              {
-                "flags.super_voter": true,
-              },
-              {
-                "flags.frequent_voter": true,
-              },
+              { "flags.super_voter": true },
+              { "flags.frequent_voter": true },
             ],
-
             "residence.location": {
               $geoWithin: {
                 $geometry: {
@@ -88,18 +73,12 @@ export async function POST(req: NextRequest) {
                 },
               },
             },
-
             "residence.address_line1": {
               $type: "string",
               $ne: "",
             },
           },
         },
-
-        /*
-         * Build one stable household key. address_line2 is included so units
-         * and apartments at the same street address stay separate.
-         */
         {
           $set: {
             addressKey: {
@@ -107,9 +86,7 @@ export async function POST(req: NextRequest) {
                 {
                   $toLower: {
                     $trim: {
-                      input: {
-                        $ifNull: ["$residence.address_line1", ""],
-                      },
+                      input: { $ifNull: ["$residence.address_line1", ""] },
                     },
                   },
                 },
@@ -117,9 +94,7 @@ export async function POST(req: NextRequest) {
                 {
                   $toLower: {
                     $trim: {
-                      input: {
-                        $ifNull: ["$residence.address_line2", ""],
-                      },
+                      input: { $ifNull: ["$residence.address_line2", ""] },
                     },
                   },
                 },
@@ -127,9 +102,7 @@ export async function POST(req: NextRequest) {
                 {
                   $toLower: {
                     $trim: {
-                      input: {
-                        $ifNull: ["$residence.city", ""],
-                      },
+                      input: { $ifNull: ["$residence.city", ""] },
                     },
                   },
                 },
@@ -137,9 +110,7 @@ export async function POST(req: NextRequest) {
                 {
                   $toLower: {
                     $trim: {
-                      input: {
-                        $ifNull: ["$residence.state", ""],
-                      },
+                      input: { $ifNull: ["$residence.state", ""] },
                     },
                   },
                 },
@@ -153,11 +124,9 @@ export async function POST(req: NextRequest) {
             },
           },
         },
-
         {
           $group: {
             _id: "$addressKey",
-
             address: {
               $first: {
                 address_line1: "$residence.address_line1",
@@ -167,62 +136,32 @@ export async function POST(req: NextRequest) {
                 zip: "$residence.zip",
               },
             },
-
             location: {
               $first: "$residence.location",
             },
-
-            /*
-             * These IDs make household-detail clicks fast. The details API can
-             * now use MongoDB's built-in _id index instead of rebuilding the
-             * normalized address key across many documents on every click.
-             */
             voterIds: {
-              $push: "$_id",
+              $push: { $toString: "$_id" },
             },
-
             voterCount: {
               $sum: 1,
             },
-
             superVoterCount: {
               $sum: {
-                $cond: [
-                  {
-                    $eq: ["$flags.super_voter", true],
-                  },
-                  1,
-                  0,
-                ],
+                $cond: [{ $eq: ["$flags.super_voter", true] }, 1, 0],
               },
             },
-
             frequentVoterCount: {
               $sum: {
-                $cond: [
-                  {
-                    $eq: ["$flags.frequent_voter", true],
-                  },
-                  1,
-                  0,
-                ],
+                $cond: [{ $eq: ["$flags.frequent_voter", true] }, 1, 0],
               },
             },
-
             district2Count: {
               $sum: {
-                $cond: [
-                  {
-                    $eq: ["$flags.srd2", true],
-                  },
-                  1,
-                  0,
-                ],
+                $cond: [{ $eq: ["$flags.srd2", true] }, 1, 0],
               },
             },
           },
         },
-
         {
           $project: {
             _id: 0,
@@ -257,9 +196,7 @@ export async function POST(req: NextRequest) {
       {
         error: err?.message || "Failed to load voters for visible map area",
       },
-      {
-        status: 500,
-      },
+      { status: 500 },
     );
   }
 }

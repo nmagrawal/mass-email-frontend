@@ -1,6 +1,6 @@
 "use client";
 
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { Show, SignInButton, SignUpButton, UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { Check, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -11,11 +11,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { canAccess, isAdminMetadata } from "@/lib/access";
 
 const tabs = [
   { label: "Emailing", href: "/" },
   { label: "Texting", href: "/mass-texting" },
   { label: "SMS HUB", href: "/sms-hub" },
+  { label: "Volunteer Texting", href: "/volunteer-texting" },
   { label: "Nearest Voters", href: "/nearest-voters" },
   { label: "Explore Voters", href: "/explore-voters" },
   { label: "Opgov Users", href: "/voters" },
@@ -25,18 +27,25 @@ const tabs = [
 
 export function AppBar() {
   const pathname = usePathname();
+  const { isLoaded, user } = useUser();
+
+  // proxy.ts enforces access; this only hides tabs the user can't open.
+  const isAdmin = isAdminMetadata(user?.publicMetadata);
+  const visibleTabs =
+    isLoaded && user ? tabs.filter((tab) => canAccess(tab.href, isAdmin)) : [];
+
   const activeTab =
-    tabs.find((tab) => pathname === tab.href) ||
-    tabs.find((tab) => pathname.startsWith(tab.href) && tab.href !== "/") ||
-    tabs[0];
-  const active = activeTab.href;
+    visibleTabs.find((tab) => pathname === tab.href) ||
+    visibleTabs.find((tab) => pathname.startsWith(tab.href) && tab.href !== "/") ||
+    visibleTabs[0];
+  const active = activeTab?.href;
 
   return (
     <nav className="w-full border-b bg-background/80 backdrop-blur sticky top-0 z-40">
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex items-center h-14 gap-2">
           <div className="hidden flex-1 gap-1 md:flex">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <Link
                 key={tab.href}
                 href={tab.href}
@@ -60,7 +69,7 @@ export function AppBar() {
                   variant="ghost"
                   className="w-full justify-between px-2 text-sm font-medium"
                 >
-                  <span className="truncate">{activeTab.label}</span>
+                  <span className="truncate">{activeTab?.label ?? "Menu"}</span>
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -68,7 +77,7 @@ export function AppBar() {
                 align="start"
                 className="w-[calc(100vw-2rem)] max-w-sm"
               >
-                {tabs.map((tab) => (
+                {visibleTabs.map((tab) => (
                   <DropdownMenuItem asChild key={tab.href}>
                     <Link
                       href={tab.href}

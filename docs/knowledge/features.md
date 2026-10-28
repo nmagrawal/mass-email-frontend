@@ -67,25 +67,30 @@ VolunteerTextingClient   tabs "Text voters" | "Templates", campaign stats (sent 
 The app cannot know if the text was actually sent — that is why Send only marks `initiated` and the volunteer must confirm.
 
 ## `/paper-distribution` — Newspaper distribution (admin / dispatcher)
-Sections (remembered per browser): **Plan** (below) · **Editions & runs** (`editions-panel.tsx`) · **Reports** (`reports-panel.tsx`).
-`app/paper-distribution/page.tsx` → `components/paper-distribution/paper-distribution-client.tsx`. Desktop: top bar · list | map | planner. Below `lg`: Locations / Map / Route tabs.
+`app/paper-distribution/page.tsx` → `components/paper-distribution/paper-distribution-client.tsx`. City selector is shared by all tabs; the last tab is remembered per browser.
+
+Tabs: **Locations** · **Plan** · **Editions & runs** (`editions-panel.tsx`) · **Reports** (`reports-panel.tsx`). Locations and Plan share one `DistributionMap`.
+- **Locations** — managing places: Add city, depot card (`depot-card.tsx`: Google search or a saved location), Add location, filter + status filter, list (no route checkboxes) + map of the filtered locations, full details card (edit / pause / reactivate / remove / recent rounds).
+- **Plan** — every non-inactive location in the city as a **checkbox list** (own quick filter, select all listed / clear) + map + route planner. Checkbox or pin card (**Add to route** / Remove, "Manage location" → Locations tab) adds stops. On small screens the map also has "Find a location" (`map-finder.tsx`) and Select all / Clear. Run mode (from Editions) also happens here.
+Below `lg`: Locations = List / Map; Plan = List / Map / Route.
 
 ```
 PaperDistributionClient   city select (+ add city via Google), filter, status filter, Add location
-├── LocationList          checkbox = add/remove stop (only active), row click = open details; select all filtered / clear
+├── LocationList          Locations tab: row click = open details (selectable={false} hides route checkboxes)
 ├── DistributionMap       pins: numbered blue = on route, gray active, amber paused, light inactive;
 │                         start/finish badges; route polyline (dashed grey when stale)
-├── LocationDetails       card over the map; "Add to route" is an explicit button; Edit / Pause / Reactivate / Remove
+├── LocationDetails       variant "manage" (Locations: edit/pause/reactivate/remove/history) or "plan" (Add to route / Remove)
 ├── LocationDialog        Google business/address search → place preview + "possible duplicates" (must tick to add anyway)
 │                         → label, area, default qty, instructions, contact, delivery days/hours, status
 └── RoutePlanner          saved-route picker (rename / duplicate / archive / restore)
-                          start & finish (depot · saved location · any address; "make this the depot"),
-                          optimize vs manual order (dragging/arrows switches to manual), departure time,
+                          start & finish (depot · current location (GPS) · saved location · any address; "make this the depot"),
+                          optimize vs manual order (dragging/arrows switches to manual); when optimizing, optional
+                          fixed First stop / Last stop (Google orders the rest), departure time,
                           minutes per stop; per-stop qty/minutes overrides; totals (papers, distance, drive,
                           unloading, total, finish time, per-stop ETA); stale warning; unroutable list w/ Exclude;
                           Save as new / Update
 ```
-**Editions & runs:** list of weekly editions → detail with copy totals, duplicate-location warning, "Add a run" (saved route + optional driver), run cards (assign/reassign driver, per-stop quantities + remove stop before start, cancel, rename, "Driver view" link), per-stop results table (dropped / old picked up / reason / who), **Correct** form for recorded stops (reason required, history kept). Auto-refreshes every 30 s while a run is live.
+**Editions & runs:** list of weekly editions → detail with copy totals, duplicate-location warning, "Add a run": either a saved route as-is (+ optional driver) or **Plan a custom run…**, which opens the Plan tab in *run mode* for that edition (blue banner; your in-progress plan is stashed and restored): pick any stops / untick some from a loaded route, first/last stop, current-location start, calculate → **Create run** (name, driver, ☐ also save as a route), run cards (assign/reassign driver, per-stop quantities + remove stop before start, cancel, rename, "Driver view" link), per-stop results table (dropped / old picked up / reason / who), **Correct** form for recorded stops (reason required, history kept). Auto-refreshes every 30 s while a run is live.
 **Reports:** date range; latest edition run status + locations not planned; copies by edition; drops vs pickups per location with leftover % (≥50% highlighted); skipped/partial list; CSV export.
 **Location details** now shows the last 6 rounds (dropped / old picked up / status).
 

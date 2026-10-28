@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   MAX_ROUTE_STOPS,
+  RouteError,
   cleanString,
+  computeDriveRoute,
   fromPoint,
   paperCollections,
   requireUser,
@@ -13,18 +15,11 @@ import {
 
 export const runtime = "nodejs";
 
-function durationToSeconds(duration?: string) {
-  return duration ? Number(duration.replace("s", "")) || 0 : 0;
-}
-
-function waypoint(point: { lat: number; lng: number }) {
-  return { location: { latLng: { latitude: point.lat, longitude: point.lng } } };
-}
-
 /*
  * POST /api/paper/route/compute
  * { cityId, start, finish: { returnToStart, point }, stops: [locationId, …],
- *   optimize, departureTime? }
+ *   optimize, firstStopId?, lastStopId?, departureTime? }
+ * With optimize, Google orders the stops; a fixed first/last stop stays put.
  *
  * Stops are taken from the directory (never client coordinates). If any stop
  * can't be routed, nothing is sent to Google and the problem stops are listed.
@@ -101,86 +96,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.GOOGLE_ROUTES_API_KEY;
-    if (!apiKey) throw new Error("GOOGLE_ROUTES_API_KEY is missing");
+    const firstId = cleanString(body.firstStopId, 50) || null;
+    const lastId = cleanString(body.lastStopId, 50) || null;
+    if ((firstId && !stopIds.includes(firstId)) || (lastId && !stopIds.includes(lastId))) {
+      return NextResponse.json({ error: "The first/last stop must be one of the selected stops" }, { status: 400 });
+    }
+    if (firstId && firstId === lastId) {
+      return NextResponse.json({ error: "First and last stop must be different" }, { status: 400 });
+    }
 
     const departure = body.departureTime ? new Date(body.departureTime) : null;
-    const useTraffic = departure && !Number.isNaN(departure.getTime()) && departure.getTime() > Date.now() + 60_000;
 
-    const googleBody = {
-      origin: waypoint(fromPoint(start.location)),
-      destination: waypoint(fromPoint(finish.location)),
-      intermediates: stopIds.map((id) => waypoint(fromPoint(byId.get(id)!.location))),
-      travelMode: "DRIVE",
-      routingPreference: useTraffic ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE",
-      ...(useTraffic ? { departureTime: departure!.toISOString() } : {}),
-      optimizeWaypointOrder: optimize && stopIds.length > 1,
-      polylineQuality: "HIGH_QUALITY",
-      polylineEncoding: "GEO_JSON_LINESTRING",
-      units: "IMPERIAL",
-    };
-
-    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": [
-          "routes.distanceMeters",
-          "routes.duration",
-          "routes.polyline.geoJsonLinestring",
-          "routes.optimizedIntermediateWaypointIndex",
-          "routes.legs.distanceMeters",
-          "routes.legs.duration",
-          "routes.warnings",
-        ].join(","),
-      },
-      body: JSON.stringify(googleBody),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Google Routes API:", data);
-      return NextResponse.json(
-        { error: data?.error?.message || "Google could not create the route" },
-        { status: 502 },
-      );
+    let result;
+    try {
+      result = await computeDriveRoute({
+        start: fromPoint(start.location),
+        finish: fromPoint(finish.location),
+        stops: stopIds.map((id) => ({ id, point: fromPoint(byId.get(id)!.location) })),
+        optimize,
+        firstId,
+        lastId,
+        departure,
+      });
+    } catch (err) {
+      if (err instanceof RouteError) {
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
     }
-
-    const route = data.routes?.[0];
-    if (!route) {
-      return NextResponse.json(
-        { error: "Google found no driving route through these stops" },
-        { status: 404 },
-      );
-    }
-
-    const order: number[] =
-      googleBody.optimizeWaypointOrder &&
-      Array.isArray(route.optimizedIntermediateWaypointIndex) &&
-      route.optimizedIntermediateWaypointIndex.length === stopIds.length
-        ? route.optimizedIntermediateWaypointIndex
-        : stopIds.map((_, i) => i);
-
-    const legs = (route.legs || []).map((leg: any) => ({
-      distanceMeters: Number(leg.distanceMeters || 0),
-      durationSeconds: durationToSeconds(leg.duration),
-    }));
 
     return NextResponse.json({
-      orderedLocationIds: order.map((i) => stopIds[i]),
-      path: (route.polyline?.geoJsonLinestring?.coordinates || []).map((c: number[]) => ({
-        lng: Number(c[0]),
-        lat: Number(c[1]),
-      })),
-      distanceMeters: Number(route.distanceMeters || 0),
-      driveSeconds: durationToSeconds(route.duration),
-      legs, // legs[i] = drive to stop i; last leg = to finish
-      trafficAware: Boolean(useTraffic),
+      ...result, // legs[i] = drive to stop i; last leg = to finish
       start: { label: start.label, ...fromPoint(start.location) },
       finish: { label: finish.label, ...fromPoint(finish.location) },
-      warnings: Array.isArray(route.warnings) ? route.warnings : [],
     });
   } catch (err: any) {
     console.error("Paper route compute error:", err);

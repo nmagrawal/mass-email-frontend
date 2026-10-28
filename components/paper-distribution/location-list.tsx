@@ -17,6 +17,9 @@ type Props = {
   onFocus: (location: DropLocation) => void;
   onSelectAll: () => void;
   onClear: () => void;
+  /* false on the Locations tab: no route checkboxes. */
+  selectable?: boolean;
+  header?: React.ReactNode;
 };
 
 export function LocationList({
@@ -29,6 +32,8 @@ export function LocationList({
   onFocus,
   onSelectAll,
   onClear,
+  selectable = true,
+  header,
 }: Props) {
   const itemRefs = useRef(new Map<string, HTMLLIElement>());
 
@@ -37,7 +42,7 @@ export function LocationList({
     if (focusedId) itemRefs.current.get(focusedId)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [focusedId]);
 
-  const selectable = locations.filter((l) => l.status === "active");
+  const activeLocations = locations.filter((l) => l.status === "active");
   const selectedInView = locations.filter((l) => stopNumbers.has(l.id)).length;
   const totalCopies = locations
     .filter((l) => l.status === "active")
@@ -45,15 +50,16 @@ export function LocationList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {header}
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
         <span>
           {locations.length} location{locations.length === 1 ? "" : "s"} · {totalCopies.toLocaleString()} copies/active
         </span>
-        <span className="flex gap-2">
+        <span className={cn("flex gap-2", !selectable && "hidden")}>
           <button
             type="button"
             onClick={onSelectAll}
-            disabled={selectable.length === 0}
+            disabled={activeLocations.length === 0}
             className="font-medium text-primary hover:underline disabled:opacity-40"
           >
             Select all
@@ -91,7 +97,7 @@ export function LocationList({
                   }}
                   className={cn("flex items-start gap-2 px-3 py-2.5", loc.id === focusedId && "bg-accent")}
                 >
-                  <label className="flex shrink-0 items-center pt-0.5" title="Add to route">
+                  <label className={cn("flex shrink-0 items-center pt-0.5", !selectable && "hidden")} title="Add to route">
                     <input
                       type="checkbox"
                       className="h-4 w-4"
@@ -130,7 +136,7 @@ export function LocationList({
         )}
       </div>
 
-      {selectedInView < stopNumbers.size && (
+      {selectable && selectedInView < stopNumbers.size && (
         <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
           {stopNumbers.size - selectedInView} selected stop(s) hidden by the current filter
         </div>

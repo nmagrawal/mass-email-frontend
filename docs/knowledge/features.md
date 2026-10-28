@@ -66,6 +66,26 @@ VolunteerTextingClient   tabs "Text voters" | "Templates", campaign stats (sent 
 ```
 The app cannot know if the text was actually sent — that is why Send only marks `initiated` and the volunteer must confirm.
 
+## `/paper-distribution` — Newspaper distribution (admin-only)
+`app/paper-distribution/page.tsx` → `components/paper-distribution/paper-distribution-client.tsx`. Desktop: top bar · list | map | planner. Below `lg`: Locations / Map / Route tabs.
+
+```
+PaperDistributionClient   city select (+ add city via Google), filter, status filter, Add location
+├── LocationList          checkbox = add/remove stop (only active), row click = open details; select all filtered / clear
+├── DistributionMap       pins: numbered blue = on route, gray active, amber paused, light inactive;
+│                         start/finish badges; route polyline (dashed grey when stale)
+├── LocationDetails       card over the map; "Add to route" is an explicit button; Edit / Pause / Reactivate / Remove
+├── LocationDialog        Google business/address search → place preview + "possible duplicates" (must tick to add anyway)
+│                         → label, area, default qty, instructions, contact, delivery days/hours, status
+└── RoutePlanner          saved-route picker (rename / duplicate / archive / restore)
+                          start & finish (depot · saved location · any address; "make this the depot"),
+                          optimize vs manual order (dragging/arrows switches to manual), departure time,
+                          minutes per stop; per-stop qty/minutes overrides; totals (papers, distance, drive,
+                          unloading, total, finish time, per-stop ETA); stale warning; unroutable list w/ Exclude;
+                          Save as new / Update
+```
+Route staleness = `routeSignature(plan)` (stop ids + order, start, finish, optimize, departure) differs from the one computed; quantities and stop minutes don't affect it. Max 25 stops (Routes API limit).
+
 ## `/nearest-voters` — Nearest voters & walking route
 `app/nearest-voters/page.tsx` (~700 lines) + `components/NearestVotersMap.tsx`
 

@@ -123,6 +123,39 @@ Placeholders: `{{first_name}}`, `{{last_name}}`, `{{full_name}}` (see `lib/outre
 State machine: `initiated → sent | cancelled | failed`; final states never change. A follow-up message is a new doc.
 Indexes (auto-created once per process by `getOutreachDb()`): `voters{residence.city,name.last,name.first,_id}` (name `outreach_city_name` — the volunteer list depends on it; without it every page was a 1.7M-doc COLLSCAN, ~20s), `message_templates{channel}`, `outreach_history{voter_id,campaign_id}`, `{campaign_id,channel,status}`, `{initiated_by,initiated_at:-1}`, `{voter_id,channel,sent_at:-1}`.
 
+## `paper_distribution` (main cluster) — newspaper distribution
+
+Separate from voter data. Stage 1–2 of the plan (locations + route planning). Planned later: `editions`, `delivery_runs` (run = snapshot of a route template's stops/order/quantities), driver/dispatcher roles.
+
+### `cities`
+`{ _id: "san_ramon_ca" (slug of name+state), name, state, google{place_id,name,formatted_address,types}, center: GeoJSON Point, location_fetched_at, depot: RoutePoint|null, created_by/at, updated_by/at }` — created from a Google "locality" place. `depot` = default route start.
+
+### `locations` — drop-location directory
+```ts
+{
+  _id: ObjectId, city_id, label, area,
+  google: { place_id, name, formatted_address, types },
+  location: { type: "Point", coordinates: [lng, lat] }, location_fetched_at: Date,
+  default_quantity: number, instructions, contact: { name, phone },
+  availability: { days: ["mon".."sun"], hours: string },
+  status: "active" | "paused" | "inactive",    // never deleted — "Remove" = inactive
+  created_by/at, updated_by/at                  // { clerk_user_id, name }
+}
+```
+Duplicate check before adding: same `place_id`, within 40 m, or same name (case-insensitive) in the city. Same `place_id` is rejected (409) unless confirmed.
+
+### `route_templates` — saved, reusable routes
+`{ city_id, name, status: "active"|"archived", stops: [{ location_id, quantity|null, stop_minutes|null }] (saved order; null = use default), start: RoutePoint, finish: { return_to_start, point }, optimize, default_stop_minutes, last_summary { distance_meters, drive_seconds, computed_at } }`
+
+**RoutePoint**: `{ type: "depot"|"location"|"address", label, location_id?, place_id?, formatted_address?, location: GeoJSON, fetched_at? }`. The server resolves points itself (`resolveRoutePoint`): directory locations from the DB, Google places re-fetched on save.
+
+### `audit_events`
+`{ entity: "city"|"location"|"route_template", entity_id, action, changes?: {field: {from,to}}, by, at }` — location create/update/status changes, route create/update/duplicate/archive, depot changes.
+
+**Google terms:** Place IDs are stored indefinitely; Places coordinates may be cached ≤30 days. `refreshStaleCoordinates(cityId)` re-fetches anything older than 29 days (locations, city center, depot, saved route start/finish). It runs in the background via `after()` whenever a city's locations are listed.
+
+Indexes (auto-created by `getPaperDb()`): `locations{city_id,status,label}`, `{city_id,google.place_id}`, `location` 2dsphere, `{location_fetched_at}`, `route_templates{city_id,status,name}`, `{stops.location_id}`, `audit_events{entity,entity_id,at:-1}`.
+
 ## `MONGODB_DB` (default `"opgov"`)
 
 ### `text_templates`

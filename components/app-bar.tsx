@@ -23,6 +23,7 @@ const tabs = [
   { label: "Opgov Users", href: "/voters" },
   { label: "Public Speakers", href: "/public_speakers" },
   { label: "Inbound Messages", href: "/inbound-messages" },
+  { label: "Paper Distribution", href: "/paper-distribution" },
 ];
 
 export function AppBar() {

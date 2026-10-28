@@ -13,12 +13,25 @@ type Props = {
   location: DropLocation;
   stopNumber: number | undefined;
   onClose: () => void;
-  onToggleStop: () => void;
-  onEdit: () => void;
+  /* "manage" (Locations tab): edit / pause / remove / history. "plan": add to route. */
+  variant?: "manage" | "plan";
+  onToggleStop?: () => void;
+  onEdit?: () => void;
+  onManage?: () => void;
   onUpdated: (location: DropLocation, note?: string) => void;
 };
 
-export function LocationDetails({ location, stopNumber, onClose, onToggleStop, onEdit, onUpdated }: Props) {
+export function LocationDetails({
+  location,
+  stopNumber,
+  onClose,
+  variant = "manage",
+  onToggleStop,
+  onEdit,
+  onManage,
+  onUpdated,
+}: Props) {
+  const manage = variant === "manage";
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [history, setHistory] = useState<{
@@ -27,6 +40,7 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
   } | null>(null);
 
   useEffect(() => {
+    if (!manage) return;
     let cancelled = false;
     setHistory(null);
     fetch(`/api/paper/locations/${location.id}/history?limit=6`)
@@ -36,7 +50,7 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
     return () => {
       cancelled = true;
     };
-  }, [location.id]);
+  }, [location.id, manage]);
 
   async function setStatus(status: DropLocation["status"]) {
     if (status === "inactive" && !window.confirm(`Remove “${location.label}” from the active directory? Its history is kept and you can reactivate it later.`)) {
@@ -109,7 +123,7 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
           </>
         )}
       </dl>
-      {location.instructions && (
+      {manage && location.instructions && (
         <p className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-2 text-sm">{location.instructions}</p>
       )}
       {location.updatedBy && (
@@ -119,7 +133,7 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
         </div>
       )}
 
-      {history && history.history.length > 0 && (
+      {manage && history && history.history.length > 0 && (
         <div className="mt-3">
           <div className="mb-1 flex items-center justify-between text-xs font-medium text-muted-foreground">
             <span>Recent rounds</span>
@@ -155,25 +169,35 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
       {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {(location.status === "active" || stopNumber !== undefined) && (
+        {!manage && onToggleStop && (location.status === "active" || stopNumber !== undefined) && (
           <Button size="sm" variant={stopNumber !== undefined ? "outline" : "default"} onClick={onToggleStop}>
             {stopNumber !== undefined ? `Remove stop ${stopNumber} from route` : "Add to route"}
           </Button>
         )}
-        <Button size="sm" variant="outline" onClick={onEdit}>
-          Edit
-        </Button>
-        {location.status === "active" && (
+        {!manage && location.status !== "active" && (
+          <span className="self-center text-xs text-muted-foreground">Only active locations can be added to a route.</span>
+        )}
+        {!manage && onManage && (
+          <Button size="sm" variant="ghost" onClick={onManage}>
+            Manage location
+          </Button>
+        )}
+        {manage && onEdit && (
+          <Button size="sm" variant="outline" onClick={onEdit}>
+            Edit
+          </Button>
+        )}
+        {manage && location.status === "active" && (
           <Button size="sm" variant="ghost" onClick={() => setStatus("paused")} disabled={Boolean(busy)}>
             {busy === "paused" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Pause
           </Button>
         )}
-        {location.status !== "active" && (
+        {manage && location.status !== "active" && (
           <Button size="sm" variant="ghost" onClick={() => setStatus("active")} disabled={Boolean(busy)}>
             {busy === "active" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Reactivate
           </Button>
         )}
-        {location.status !== "inactive" && (
+        {manage && location.status !== "inactive" && (
           <Button
             size="sm"
             variant="ghost"

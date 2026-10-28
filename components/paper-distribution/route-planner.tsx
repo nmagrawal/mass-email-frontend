@@ -41,7 +41,12 @@ export type Plan = {
   optimize: boolean;
   departure: string; // datetime-local value, "" = not set
   defaultStopMinutes: number;
+  /* Fixed first / last stop when optimizing — Google orders the rest. */
+  firstStopId: string | null;
+  lastStopId: string | null;
 };
+
+export type RunTarget = { editionId: string; editionName: string };
 
 /* Anything that changes the road path. Quantities and stop minutes don't. */
 export function routeSignature(plan: Plan) {
@@ -51,6 +56,7 @@ export function routeSignature(plan: Plan) {
     p(plan.start),
     plan.finish.returnToStart ? "return" : p(plan.finish.point),
     plan.optimize,
+    plan.optimize ? [plan.firstStopId, plan.lastStopId] : null,
     plan.departure,
   ]);
 }
@@ -70,6 +76,11 @@ type Props = {
   onNewRoute: () => void;
   onCityUpdated: (city: City) => void;
   onFocusLocation: (id: string) => void;
+  /* Set when planning a run for an edition (Editions & runs → Plan a custom run). */
+  runTarget?: RunTarget | null;
+  drivers?: { clerkUserId: string; name: string; role: string }[];
+  onRunCreated?: (editionId: string, message: string) => void;
+  onCancelRun?: () => void;
 };
 
 export function RoutePlanner({
@@ -87,7 +98,17 @@ export function RoutePlanner({
   onNewRoute,
   onCityUpdated,
   onFocusLocation,
+  runTarget = null,
+  drivers = [],
+  onRunCreated,
+  onCancelRun,
 }: Props) {
+  const [runName, setRunName] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [saveAsRoute, setSaveAsRoute] = useState(false);
+  const [routeName, setRouteName] = useState("");
+  const [creatingRun, setCreatingRun] = useState(false);
+  const [runDuplicates, setRunDuplicates] = useState<{ label: string; runs: string[] }[]>([]);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState("");
   const [unroutable, setUnroutable] = useState<Unroutable[]>([]);
@@ -97,6 +118,10 @@ export function RoutePlanner({
   const [showArchived, setShowArchived] = useState(false);
 
   const activeRoute = savedRoutes.find((r) => r.id === activeRouteId) || null;
+  const selectedIds = new Set(plan.stops.map((s) => s.locationId));
+  const pinnedFirst = plan.firstStopId && selectedIds.has(plan.firstStopId) ? plan.firstStopId : null;
+  const pinnedLast =
+    plan.lastStopId && selectedIds.has(plan.lastStopId) && plan.lastStopId !== pinnedFirst ? plan.lastStopId : null;
   const stale = Boolean(computed && computed.signature !== routeSignature(plan));
   const route = computed && !stale ? computed.route : null;
 
@@ -143,7 +168,12 @@ export function RoutePlanner({
   }
 
   function removeStop(locationId: string) {
-    setPlan((p) => ({ ...p, stops: p.stops.filter((s) => s.locationId !== locationId) }));
+    setPlan((p) => ({
+      ...p,
+      stops: p.stops.filter((s) => s.locationId !== locationId),
+      firstStopId: p.firstStopId === locationId ? null : p.firstStopId,
+      lastStopId: p.lastStopId === locationId ? null : p.lastStopId,
+    }));
     setUnroutable((u) => u.filter((x) => x.locationId !== locationId));
   }
 
@@ -159,6 +189,8 @@ export function RoutePlanner({
           finish: plan.finish,
           stops: plan.stops.map((s) => s.locationId),
           optimize: plan.optimize,
+          firstStopId: plan.optimize ? pinnedFirst : null,
+          lastStopId: plan.optimize ? pinnedLast : null,
           departureTime: plan.departure ? new Date(plan.departure).toISOString() : null,
         }),
       );
@@ -183,6 +215,8 @@ export function RoutePlanner({
       start: plan.start,
       finish: plan.finish,
       optimize: plan.optimize,
+      firstLocationId: plan.optimize ? pinnedFirst : null,
+      lastLocationId: plan.optimize ? pinnedLast : null,
       defaultStopMinutes: plan.defaultStopMinutes,
       lastSummary: route ? { distanceMeters: route.distanceMeters, driveSeconds: route.driveSeconds } : null,
     };
@@ -205,6 +239,36 @@ export function RoutePlanner({
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function createRun(confirmDuplicates: boolean) {
+    if (!runTarget || !route) return;
+    setCreatingRun(true);
+    setError("");
+    try {
+      const data = await readJson<{ run: { name: string }; savedRoute: RouteTemplate | { id: string; name: string } | null }>(
+        await postJson("/api/paper/runs", {
+          editionId: runTarget.editionId,
+          name: runName.trim() || activeRoute?.name || "",
+          routeTemplateId: activeRouteId,
+          driverId: driverId || null,
+          confirmDuplicates,
+          saveAsRoute: saveAsRoute ? { name: routeName.trim() } : null,
+          ...payload(),
+        }),
+      );
+      setRunDuplicates([]);
+      onRunCreated?.(
+        runTarget.editionId,
+        `Created “${data.run.name}” with ${plan.stops.length} stops${data.savedRoute ? ` and saved route “${data.savedRoute.name}”` : ""}.`,
+      );
+    } catch (err: any) {
+      if (err.data?.code === "duplicates") setRunDuplicates(err.data.duplicates);
+      if (err.data?.code === "unroutable") setUnroutable(err.data.unroutable);
+      setError(err.message);
+    } finally {
+      setCreatingRun(false);
     }
   }
 
@@ -368,6 +432,30 @@ export function RoutePlanner({
               onChange={(e) => setPlan((p) => ({ ...p, defaultStopMinutes: Math.max(0, Number(e.target.value) || 0) }))}
             />
           </label>
+          {plan.optimize && plan.stops.length > 1 && (
+            <>
+              <PinSelect
+                label="First stop"
+                value={pinnedFirst}
+                exclude={pinnedLast}
+                plan={plan}
+                locationsById={locationsById}
+                onChange={(id) => setPlan((p) => ({ ...p, firstStopId: id }))}
+              />
+              <PinSelect
+                label="Last stop"
+                value={pinnedLast}
+                exclude={pinnedFirst}
+                plan={plan}
+                locationsById={locationsById}
+                onChange={(id) => setPlan((p) => ({ ...p, lastStopId: id }))}
+              />
+              <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
+                Google optimizes the order of the other stops
+                {pinnedFirst || pinnedLast ? " between the fixed ones" : ""}.
+              </p>
+            </>
+          )}
           <label className="col-span-2 space-y-1 text-xs font-medium text-muted-foreground">
             <span>Departure (optional — uses traffic for future times)</span>
             <Input
@@ -417,6 +505,11 @@ export function RoutePlanner({
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white">
                       {i + 1}
                     </span>
+                    {plan.optimize && (s.locationId === pinnedFirst || s.locationId === pinnedLast) && (
+                      <span className="shrink-0 rounded bg-blue-100 px-1 text-[10px] font-semibold uppercase text-blue-800">
+                        {s.locationId === pinnedFirst ? "First" : "Last"}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => onFocusLocation(s.locationId)}
@@ -535,6 +628,67 @@ export function RoutePlanner({
         </Button>
         {!plan.start && <div className="text-center text-xs text-muted-foreground">Choose a start point first.</div>}
 
+        {runTarget ? (
+          <div className="space-y-2 rounded-lg border-2 border-blue-200 bg-blue-50/50 p-2">
+            <div className="text-xs font-semibold text-blue-900">Create run for {runTarget.editionName}</div>
+            <Input
+              value={runName}
+              onChange={(e) => setRunName(e.target.value)}
+              placeholder={activeRoute ? `Run name (default: ${activeRoute.name})` : "Run name, e.g. East – Tuesday"}
+              maxLength={120}
+            />
+            <select
+              value={driverId}
+              onChange={(e) => setDriverId(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="">No driver yet</option>
+              {drivers.map((d) => (
+                <option key={d.clerkUserId} value={d.clerkUserId}>
+                  {d.name}
+                  {d.role !== "driver" ? ` (${d.role})` : ""}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={saveAsRoute} onChange={(e) => setSaveAsRoute(e.target.checked)} />
+              Also save as a route for later
+            </label>
+            {saveAsRoute && (
+              <Input value={routeName} onChange={(e) => setRouteName(e.target.value)} placeholder="Saved route name" maxLength={120} />
+            )}
+            {runDuplicates.length > 0 && (
+              <div className="space-y-1 rounded-md bg-amber-50 p-2 text-xs text-amber-900">
+                {runDuplicates.map((d) => (
+                  <div key={d.label}>
+                    {d.label} is already in {d.runs.join(", ")}
+                  </div>
+                ))}
+                <Button size="sm" variant="outline" onClick={() => createRun(true)} disabled={creatingRun}>
+                  Create anyway
+                </Button>
+              </div>
+            )}
+            {!route && plan.stops.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                {stale ? "Recalculate" : "Calculate"} the route first so the run gets the right stop order.
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={onCancelRun} disabled={creatingRun}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => createRun(false)}
+                disabled={creatingRun || !route || (saveAsRoute && !routeName.trim())}
+              >
+                {creatingRun && <Loader2 className="h-4 w-4 animate-spin" />} Create run ({plan.stops.length} stops)
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
         {activeRoute && activeRoute.status === "active" && (
           <Button variant="outline" className="w-full" onClick={() => save(false)} disabled={saving || plan.stops.length === 0 || !plan.start}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} Update “{activeRoute.name}”
@@ -561,6 +715,8 @@ export function RoutePlanner({
             Save
           </Button>
         </form>
+          </>
+        )}
       </div>
     </div>
   );
@@ -572,5 +728,41 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className="font-semibold tabular-nums">{value}</div>
     </div>
+  );
+}
+
+function PinSelect({
+  label,
+  value,
+  exclude,
+  plan,
+  locationsById,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  exclude: string | null;
+  plan: Plan;
+  locationsById: Map<string, DropLocation>;
+  onChange: (id: string | null) => void;
+}) {
+  return (
+    <label className="space-y-1 text-xs font-medium text-muted-foreground">
+      <span>{label}</span>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="h-9 w-full rounded-md border bg-background px-2 text-sm text-foreground"
+      >
+        <option value="">Google decides</option>
+        {plan.stops
+          .filter((s) => s.locationId !== exclude)
+          .map((s) => (
+            <option key={s.locationId} value={s.locationId}>
+              {locationsById.get(s.locationId)?.label ?? "Unknown location"}
+            </option>
+          ))}
+      </select>
+    </label>
   );
 }

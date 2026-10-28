@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { LocateFixed, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 import { PlaceSearch, fetchPlaceDetails } from "./place-search";
 import { postJson, readJson, type City, type DropLocation, type RoutePointValue } from "./types";
 
-type Mode = "depot" | "location" | "address";
+type Mode = "depot" | "location" | "address" | "current";
 
 type Props = {
   label: string;
@@ -19,7 +19,7 @@ type Props = {
   onCityUpdated: (city: City) => void;
 };
 
-/* Start/finish chooser: city depot, a directory location, or any address. */
+/* Start/finish chooser: city depot, a directory location, any address, or GPS. */
 export function RoutePointPicker({ label, city, value, locations, onChange, onCityUpdated }: Props) {
   const [mode, setMode] = useState<Mode>(value?.type ?? (city.depot ? "depot" : "address"));
   const [loading, setLoading] = useState(false);
@@ -35,7 +35,41 @@ export function RoutePointPicker({ label, city, value, locations, onChange, onCi
     setMode(next);
     setError("");
     if (next === "depot") onChange(city.depot ? { ...city.depot, type: "depot" } : null);
+    else if (next === "current") locate();
     else if (value?.type !== next) onChange(null);
+  }
+
+  /* Device GPS. Re-run "Update" right before calculating if you've moved. */
+  function locate() {
+    if (!("geolocation" in navigator)) {
+      setError("This browser can't share its location");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLoading(false);
+        onChange({
+          type: "current",
+          label: `Current location (${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })})`,
+          locationId: null,
+          placeId: null,
+          formattedAddress: `±${Math.round(pos.coords.accuracy)} m`,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      (err) => {
+        setLoading(false);
+        setError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission was denied — allow it in the browser, or pick an address"
+            : "Couldn't get your location — try again or pick an address",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+    );
   }
 
   async function pickAddress(placeId: string, token: string) {
@@ -91,10 +125,27 @@ export function RoutePointPicker({ label, city, value, locations, onChange, onCi
           <option value="depot" disabled={!city.depot}>
             Depot{city.depot ? "" : " (not set)"}
           </option>
+          <option value="current">Current location</option>
           <option value="location">Saved location</option>
           <option value="address">Address…</option>
         </select>
       </div>
+
+      {mode === "current" && (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <div className="min-w-0">
+            <div className="truncate font-medium">{value?.type === "current" ? value.label : "Getting your location…"}</div>
+            {value?.type === "current" && (
+              <div className="text-xs text-muted-foreground">
+                {value.lat.toFixed(5)}, {value.lng.toFixed(5)} · {value.formattedAddress}
+              </div>
+            )}
+          </div>
+          <Button type="button" size="sm" variant="ghost" onClick={locate} disabled={loading}>
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5" />} Update
+          </Button>
+        </div>
+      )}
 
       {mode === "depot" && city.depot && (
         <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">

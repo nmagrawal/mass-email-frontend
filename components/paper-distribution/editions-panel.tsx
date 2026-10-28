@@ -27,9 +27,12 @@ import { postJson, readJson, type City, type RouteTemplate } from "./types";
 type Props = {
   city: City;
   savedRoutes: RouteTemplate[];
+  /* Select (and reload) this edition, e.g. after a custom run was created. */
+  focus?: { editionId: string; nonce: number } | null;
+  onPlanRun?: (edition: Edition) => void;
 };
 
-export function EditionsPanel({ city, savedRoutes }: Props) {
+export function EditionsPanel({ city, savedRoutes, focus, onPlanRun }: Props) {
   const [editions, setEditions] = useState<Edition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -56,6 +59,10 @@ export function EditionsPanel({ city, savedRoutes }: Props) {
     setSelectedId(null);
     loadEditions();
   }, [loadEditions]);
+
+  useEffect(() => {
+    if (focus) setSelectedId(focus.editionId);
+  }, [focus]);
 
   useEffect(() => {
     fetch("/api/paper/drivers")
@@ -125,7 +132,8 @@ export function EditionsPanel({ city, savedRoutes }: Props) {
       <section className="min-h-0 flex-1 overflow-y-auto">
         {selectedId ? (
           <EditionDetailView
-            key={selectedId}
+            key={`${selectedId}:${focus?.editionId === selectedId ? focus.nonce : 0}`}
+            onPlanRun={onPlanRun}
             editionId={selectedId}
             savedRoutes={savedRoutes.filter((r) => r.status === "active")}
             drivers={drivers}
@@ -211,7 +219,9 @@ function EditionDetailView({
   savedRoutes,
   drivers,
   onEditionChanged,
+  onPlanRun,
 }: {
+  onPlanRun?: (edition: Edition) => void;
   editionId: string;
   savedRoutes: RouteTemplate[];
   drivers: Driver[];
@@ -354,7 +364,13 @@ function EditionDetailView({
       )}
 
       {edition.status !== "closed" && (
-        <AddRunForm editionId={edition.id} savedRoutes={savedRoutes} drivers={drivers} onCreated={load} />
+        <AddRunForm
+          editionId={edition.id}
+          savedRoutes={savedRoutes}
+          drivers={drivers}
+          onCreated={load}
+          onPlanCustom={onPlanRun ? () => onPlanRun(edition) : undefined}
+        />
       )}
 
       <div className="space-y-2">
@@ -385,7 +401,9 @@ function AddRunForm({
   savedRoutes,
   drivers,
   onCreated,
+  onPlanCustom,
 }: {
+  onPlanCustom?: () => void;
   editionId: string;
   savedRoutes: RouteTemplate[];
   drivers: Driver[];
@@ -423,7 +441,15 @@ function AddRunForm({
 
   return (
     <div className="space-y-2 rounded-lg border p-3">
-      <div className="text-sm font-medium">Add a run</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium">Add a run</div>
+        {onPlanCustom && (
+          <Button size="sm" variant="outline" onClick={onPlanCustom}>
+            Plan a custom run (pick stops, first/last, current location)…
+          </Button>
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">Or use a saved route exactly as it is:</div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <select
           value={routeId}

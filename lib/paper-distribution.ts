@@ -76,9 +76,13 @@ export type LocationDocument = {
   updated_at: Date;
 };
 
-/* A route start/finish: the city depot, a directory location, or any address. */
+/*
+ * A route start/finish: the city depot, a directory location, any address, or
+ * the device's GPS position ("current" — captured when the route was planned;
+ * not Google data, so no refresh needed).
+ */
 export type RoutePoint = {
-  type: "depot" | "location" | "address";
+  type: "depot" | "location" | "address" | "current";
   label: string;
   location_id?: string;
   place_id?: string;
@@ -102,6 +106,9 @@ export type RouteTemplateDocument = {
   start: RoutePoint;
   finish: { return_to_start: boolean; point: RoutePoint | null };
   optimize: boolean;
+  // Fixed first / last stop when optimizing (Google orders the rest).
+  first_location_id?: string | null;
+  last_location_id?: string | null;
   default_stop_minutes: number;
   last_summary: {
     distance_meters: number;
@@ -706,6 +713,8 @@ export function serializeRouteTemplate(route: RouteTemplateDocument) {
       point: route.finish.point ? serializeRoutePoint(route.finish.point) : null,
     },
     optimize: route.optimize,
+    firstLocationId: route.first_location_id ?? null,
+    lastLocationId: route.last_location_id ?? null,
     defaultStopMinutes: route.default_stop_minutes,
     lastSummary: route.last_summary
       ? {
@@ -728,7 +737,7 @@ export type SerializedRouteTemplate = ReturnType<typeof serializeRouteTemplate>;
 export function parseRoutePoint(raw: any): RoutePoint | null {
   if (!raw || typeof raw !== "object") return null;
   const type = raw.type;
-  if (!["depot", "location", "address"].includes(type)) return null;
+  if (!["depot", "location", "address", "current"].includes(type)) return null;
   const lat = Number(raw.lat);
   const lng = Number(raw.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
@@ -837,6 +846,22 @@ export async function parseRouteTemplateFields(
   }
 
   if (!partial || "optimize" in body) out.optimize = body.optimize === true;
+
+  if (!partial || "firstLocationId" in body || "lastLocationId" in body) {
+    const stopIds = new Set(
+      ((out.stops as RouteTemplateStop[] | undefined) ?? []).map((s) => s.location_id),
+    );
+    const pin = (v: unknown) => {
+      const id = cleanString(v, 50);
+      // On partial updates without stops we can't check membership; keep as given.
+      return id && (stopIds.size === 0 || stopIds.has(id)) ? id : null;
+    };
+    out.first_location_id = pin(body.firstLocationId);
+    out.last_location_id = pin(body.lastLocationId);
+    if (out.first_location_id && out.first_location_id === out.last_location_id) {
+      return "First and last stop must be different";
+    }
+  }
 
   if (!partial || "defaultStopMinutes" in body) {
     const m = Number(body.defaultStopMinutes ?? 3);
@@ -948,4 +973,151 @@ export async function resolveDriver(clerkUserId: string): Promise<AuditUser | nu
   } catch {
     return null;
   }
+}
+
+/* ---------------- Google Routes (driving) ---------------- */
+
+type LatLng = { lat: number; lng: number };
+
+function routesKey() {
+  const key = process.env.GOOGLE_ROUTES_API_KEY;
+  if (!key) throw new Error("GOOGLE_ROUTES_API_KEY is missing");
+  return key;
+}
+
+const durationToSeconds = (d?: string) => (d ? Number(d.replace("s", "")) || 0 : 0);
+const waypoint = (p: LatLng) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+
+async function callRoutes(body: Record<string, unknown>) {
+  const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": routesKey(),
+      "X-Goog-FieldMask": [
+        "routes.distanceMeters",
+        "routes.duration",
+        "routes.polyline.geoJsonLinestring",
+        "routes.optimizedIntermediateWaypointIndex",
+        "routes.legs.distanceMeters",
+        "routes.legs.duration",
+        "routes.warnings",
+      ].join(","),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    console.error("Google Routes API:", data);
+    throw new RouteError(data?.error?.message || "Google could not create the route", 502);
+  }
+  const route = data.routes?.[0];
+  if (!route) throw new RouteError("Google found no driving route through these stops", 404);
+  return route;
+}
+
+export class RouteError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+/*
+ * Driving route start → stops → finish.
+ *
+ * optimize=false: stops in the given order.
+ * optimize=true:  Google reorders the stops. With a fixed first and/or last
+ *   stop, Google only reorders the stops between them: one call optimizes the
+ *   middle (from the first stop, or start, to the last stop, or finish), a
+ *   second call gets the real path and times for the final order.
+ */
+export async function computeDriveRoute(opts: {
+  start: LatLng;
+  finish: LatLng;
+  stops: { id: string; point: LatLng }[];
+  optimize: boolean;
+  firstId?: string | null;
+  lastId?: string | null;
+  departure?: Date | null;
+}) {
+  const { start, finish, stops, optimize } = opts;
+  const useTraffic =
+    opts.departure && !Number.isNaN(opts.departure.getTime()) && opts.departure.getTime() > Date.now() + 60_000;
+  const common = {
+    travelMode: "DRIVE",
+    routingPreference: useTraffic ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE",
+    ...(useTraffic ? { departureTime: opts.departure!.toISOString() } : {}),
+    units: "IMPERIAL",
+  };
+
+  const byId = new Map(stops.map((s) => [s.id, s]));
+  const first = opts.firstId ? byId.get(opts.firstId) : undefined;
+  const last = opts.lastId ? byId.get(opts.lastId) : undefined;
+
+  let ordered = stops;
+
+  if (optimize && stops.length > 1) {
+    if (first || last) {
+      const middle = stops.filter((s) => s !== first && s !== last);
+      let middleOrdered = middle;
+      if (middle.length > 1) {
+        const r = await callRoutes({
+          ...common,
+          origin: waypoint(first?.point ?? start),
+          destination: waypoint(last?.point ?? finish),
+          intermediates: middle.map((s) => waypoint(s.point)),
+          optimizeWaypointOrder: true,
+        });
+        const idx: number[] = Array.isArray(r.optimizedIntermediateWaypointIndex) &&
+          r.optimizedIntermediateWaypointIndex.length === middle.length
+          ? r.optimizedIntermediateWaypointIndex
+          : middle.map((_, i) => i);
+        middleOrdered = idx.map((i) => middle[i]);
+      }
+      ordered = [...(first ? [first] : []), ...middleOrdered, ...(last ? [last] : [])];
+    } else {
+      const r = await callRoutes({
+        ...common,
+        origin: waypoint(start),
+        destination: waypoint(finish),
+        intermediates: stops.map((s) => waypoint(s.point)),
+        optimizeWaypointOrder: true,
+        polylineQuality: "HIGH_QUALITY",
+        polylineEncoding: "GEO_JSON_LINESTRING",
+      });
+      const idx: number[] = Array.isArray(r.optimizedIntermediateWaypointIndex) &&
+        r.optimizedIntermediateWaypointIndex.length === stops.length
+        ? r.optimizedIntermediateWaypointIndex
+        : stops.map((_, i) => i);
+      return shapeRoute(r, idx.map((i) => stops[i]), Boolean(useTraffic));
+    }
+  }
+
+  const r = await callRoutes({
+    ...common,
+    origin: waypoint(start),
+    destination: waypoint(finish),
+    intermediates: ordered.map((s) => waypoint(s.point)),
+    polylineQuality: "HIGH_QUALITY",
+    polylineEncoding: "GEO_JSON_LINESTRING",
+  });
+  return shapeRoute(r, ordered, Boolean(useTraffic));
+}
+
+function shapeRoute(route: any, ordered: { id: string }[], trafficAware: boolean) {
+  return {
+    orderedLocationIds: ordered.map((s) => s.id),
+    path: (route.polyline?.geoJsonLinestring?.coordinates || []).map((c: number[]) => ({
+      lng: Number(c[0]),
+      lat: Number(c[1]),
+    })) as LatLng[],
+    distanceMeters: Number(route.distanceMeters || 0),
+    driveSeconds: durationToSeconds(route.duration),
+    legs: (route.legs || []).map((leg: any) => ({
+      distanceMeters: Number(leg.distanceMeters || 0),
+      durationSeconds: durationToSeconds(leg.duration),
+    })) as { distanceMeters: number; durationSeconds: number }[],
+    trafficAware,
+    warnings: Array.isArray(route.warnings) ? (route.warnings as string[]) : [],
+  };
 }

@@ -145,9 +145,9 @@ Separate from voter data. Planning (cities, locations, route_templates) → deli
 Duplicate check before adding: same `place_id`, within 40 m, or same name (case-insensitive) in the city. Same `place_id` is rejected (409) unless confirmed.
 
 ### `route_templates` — saved, reusable routes
-`{ city_id, name, status: "active"|"archived", stops: [{ location_id, quantity|null, stop_minutes|null }] (saved order; null = use default), start: RoutePoint, finish: { return_to_start, point }, optimize, default_stop_minutes, last_summary { distance_meters, drive_seconds, computed_at } }`
+`{ city_id, name, status: "active"|"archived", stops: [{ location_id, quantity|null, stop_minutes|null }] (saved order; null = use default), start: RoutePoint, finish: { return_to_start, point }, optimize, first_location_id|null, last_location_id|null (fixed first/last stop when optimizing), default_stop_minutes, last_summary { distance_meters, drive_seconds, computed_at } }`
 
-**RoutePoint**: `{ type: "depot"|"location"|"address", label, location_id?, place_id?, formatted_address?, location: GeoJSON, fetched_at? }`. The server resolves points itself (`resolveRoutePoint`): directory locations from the DB, Google places re-fetched on save.
+**RoutePoint**: `{ type: "depot"|"location"|"address"|"current" (device GPS captured when planned — not Google data, never refreshed), label, location_id?, place_id?, formatted_address?, location: GeoJSON, fetched_at? }`. The server resolves points itself (`resolveRoutePoint`): directory locations from the DB, Google places re-fetched on save.
 
 ### `editions` — one weekly round / issue per city
 `{ city_id, name ("Week of Oct 27"), publish_date (noon local), copies_available, status: planning|distributing|closed, notes, created_by/at, updated_by/at }`. Becomes `distributing` automatically when its first run starts.

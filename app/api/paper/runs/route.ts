@@ -10,7 +10,10 @@ import {
   requireUser,
   resolveDriver,
   serializeRun,
+  parseRouteTemplateFields,
   type DeliveryRunDocument,
+  type RoutePoint,
+  type RouteTemplateStop,
   type RunStopSnapshot,
   type StopDeliveryDocument,
 } from "@/lib/paper-distribution";
@@ -19,7 +22,11 @@ export const runtime = "nodejs";
 
 /*
  * POST /api/paper/runs
- * { editionId, routeTemplateId, name?, driverId?, confirmDuplicates? }
+ * From a saved route: { editionId, routeTemplateId, name?, driverId?, confirmDuplicates? }
+ * Custom (planned in the UI): { editionId, stops: [{locationId, quantity, stopMinutes}] in
+ *   final order, start, finish, optimize, firstLocationId?, lastLocationId?,
+ *   defaultStopMinutes, lastSummary?, name?, driverId?, confirmDuplicates?,
+ *   routeTemplateId? (the route it started from), saveAsRoute?: { name } }
  *
  * Creates a delivery run as a SNAPSHOT of the saved route: stops, order,
  * quantities and instructions are frozen, so later route edits don't change
@@ -36,40 +43,92 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const editionId = cleanString(body.editionId, 50);
-    const templateId = cleanString(body.routeTemplateId, 50);
+    const custom = Array.isArray(body.stops);
 
-    if (!ObjectId.isValid(editionId) || !ObjectId.isValid(templateId)) {
-      return NextResponse.json({ error: "Choose an edition and a saved route" }, { status: 400 });
+    if (!ObjectId.isValid(editionId)) {
+      return NextResponse.json({ error: "Choose an edition" }, { status: 400 });
     }
 
-    const { editions, routeTemplates, locations, runs, stopDeliveries } = await paperCollections();
-
-    const [edition, template] = await Promise.all([
-      editions.findOne({ _id: new ObjectId(editionId) }),
-      routeTemplates.findOne({ _id: new ObjectId(templateId) }),
-    ]);
-
+    const { editions, routeTemplates, locations, runs, stopDeliveries, cities } = await paperCollections();
+    const edition = await editions.findOne({ _id: new ObjectId(editionId) });
     if (!edition) return NextResponse.json({ error: "Edition not found" }, { status: 404 });
-    if (!template) return NextResponse.json({ error: "Saved route not found" }, { status: 404 });
     if (edition.status === "closed") {
       return NextResponse.json({ error: "This edition is closed" }, { status: 409 });
     }
-    if (template.city_id !== edition.city_id) {
-      return NextResponse.json({ error: "Route and edition are in different cities" }, { status: 400 });
+
+    // Where the stops, order and endpoints come from.
+    let source: {
+      templateId: string | null;
+      name: string;
+      stops: RouteTemplateStop[];
+      defaultMinutes: number;
+      start: RoutePoint;
+      finish: RoutePoint;
+      optimize: boolean;
+      firstId: string | null;
+      lastId: string | null;
+    };
+
+    let customFields: any = null;
+
+    if (custom) {
+      // Custom run planned in the UI: stops already in the calculated order.
+      const city = await cities.findOne({ _id: edition.city_id });
+      const fields = await parseRouteTemplateFields(
+        { ...body, name: cleanString(body.name, 120) || "Custom run" },
+        false,
+        city?.depot ?? null,
+      );
+      if (typeof fields === "string") return NextResponse.json({ error: fields }, { status: 400 });
+      const f = fields as any;
+      customFields = f;
+      const refId = cleanString(body.routeTemplateId, 50);
+      source = {
+        templateId: ObjectId.isValid(refId) ? refId : null,
+        name: f.name,
+        stops: f.stops,
+        defaultMinutes: f.default_stop_minutes,
+        start: f.start,
+        finish: f.finish.return_to_start ? f.start : f.finish.point,
+        optimize: f.optimize,
+        firstId: f.first_location_id,
+        lastId: f.last_location_id,
+      };
+    } else {
+      const templateId = cleanString(body.routeTemplateId, 50);
+      if (!ObjectId.isValid(templateId)) {
+        return NextResponse.json({ error: "Choose a saved route" }, { status: 400 });
+      }
+      const template = await routeTemplates.findOne({ _id: new ObjectId(templateId) });
+      if (!template) return NextResponse.json({ error: "Saved route not found" }, { status: 404 });
+      if (template.city_id !== edition.city_id) {
+        return NextResponse.json({ error: "Route and edition are in different cities" }, { status: 400 });
+      }
+      source = {
+        templateId,
+        name: cleanString(body.name, 120) || template.name,
+        stops: template.stops,
+        defaultMinutes: template.default_stop_minutes,
+        start: template.start,
+        finish: template.finish.return_to_start ? template.start : template.finish.point ?? template.start,
+        optimize: template.optimize,
+        firstId: template.first_location_id ?? null,
+        lastId: template.last_location_id ?? null,
+      };
     }
 
     const locDocs = await locations
-      .find({ _id: { $in: template.stops.filter((s) => ObjectId.isValid(s.location_id)).map((s) => new ObjectId(s.location_id)) } })
+      .find({ _id: { $in: source.stops.filter((s) => ObjectId.isValid(s.location_id)).map((s) => new ObjectId(s.location_id)) } })
       .toArray();
     const locById = new Map(locDocs.map((l) => [String(l._id), l]));
 
     const excluded: { locationId: string; label: string; reason: string }[] = [];
     const stops: RunStopSnapshot[] = [];
 
-    for (const s of template.stops) {
+    for (const s of source.stops) {
       const loc = locById.get(s.location_id);
-      if (!loc) {
-        excluded.push({ locationId: s.location_id, label: "Unknown location", reason: "No longer in the directory" });
+      if (!loc || loc.city_id !== edition.city_id) {
+        excluded.push({ locationId: s.location_id, label: loc?.label ?? "Unknown location", reason: loc ? "Belongs to another city" : "No longer in the directory" });
         continue;
       }
       if (loc.status !== "active") {
@@ -85,8 +144,16 @@ export async function POST(req: NextRequest) {
         instructions: loc.instructions,
         contact: loc.contact,
         planned_quantity: s.quantity ?? loc.default_quantity,
-        stop_minutes: s.stop_minutes ?? template.default_stop_minutes,
+        stop_minutes: s.stop_minutes ?? source.defaultMinutes,
       });
+    }
+
+    // Stops picked by hand must all be deliverable — don't drop them silently.
+    if (custom && excluded.length) {
+      return NextResponse.json(
+        { error: "Some selected stops can't be delivered", code: "unroutable", unroutable: excluded },
+        { status: 422 },
+      );
     }
 
     if (stops.length === 0) {
@@ -122,16 +189,44 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date();
-    const finish = template.finish.return_to_start ? template.start : template.finish.point ?? template.start;
+
+    // Optionally keep this selection as a reusable saved route.
+    let savedRoute: { id: string; name: string } | null = null;
+    const saveName = custom ? cleanString(body.saveAsRoute?.name, 120) : "";
+    if (custom && body.saveAsRoute && !saveName) {
+      return NextResponse.json({ error: "Give the saved route a name" }, { status: 400 });
+    }
+    if (saveName) {
+      const templateDoc = {
+        city_id: edition.city_id,
+        status: "active" as const,
+        ...customFields,
+        name: saveName,
+        created_by: user,
+        created_at: now,
+        updated_by: user,
+        updated_at: now,
+      };
+      const saved = await routeTemplates.insertOne(templateDoc);
+      savedRoute = { id: String(saved.insertedId), name: saveName };
+      source.templateId = savedRoute.id;
+      await recordAudit({
+        entity: "route_template",
+        entity_id: savedRoute.id,
+        action: "created",
+        changes: { from_run_planning: { from: null, to: editionId } },
+        by: user,
+      });
+    }
 
     const run: DeliveryRunDocument = {
       edition_id: editionId,
       city_id: edition.city_id,
-      route_template_id: templateId,
-      name: cleanString(body.name, 120) || template.name,
+      route_template_id: source.templateId,
+      name: source.name,
       status: driver ? "assigned" : "planned",
       driver,
-      snapshot: { start: template.start, finish, stops, taken_at: now },
+      snapshot: { start: source.start, finish: source.finish, stops, taken_at: now },
       loaded_copies: null,
       returned_copies: null,
       damaged_copies: null,
@@ -175,13 +270,19 @@ export async function POST(req: NextRequest) {
       entity_id: runId,
       action: "created",
       changes: {
-        route_template: { from: null, to: templateId },
+        route_template: { from: null, to: source.templateId },
+        ...(custom ? { custom_stops: { from: null, to: stops.length } } : {}),
         ...(driver ? { driver: { from: null, to: driver.name } } : {}),
       },
       by: user,
     });
 
-    return NextResponse.json({ run: serializeRun({ ...run, _id: result.insertedId }), excluded, duplicates });
+    return NextResponse.json({
+      run: serializeRun({ ...run, _id: result.insertedId }),
+      excluded,
+      duplicates,
+      savedRoute,
+    });
   } catch (err: any) {
     console.error("Run create error:", err);
     return NextResponse.json({ error: err?.message || "Failed to create run" }, { status: 500 });

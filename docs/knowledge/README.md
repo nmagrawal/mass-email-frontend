@@ -45,7 +45,7 @@ OpGov Outreach App
 │   ├── /voters            OpGov users matched to voters
 │   ├── /public_speakers   Public speakers matched to voters
 │   ├── /inbound-messages  Legacy inbound table (broken, see gotchas)
-│   ├── /paper-distribution Plan (locations + routes) · Editions & runs · Reports (admin/dispatcher)
+│   ├── /paper-distribution Locations · Plan (map + routes) · Editions & runs · Reports (admin/dispatcher)
 │   └── /driver            Mobile driver screen: own runs, record drops/pickups, works offline
 ├── 5. Gotchas, bugs & tech debt ............... gotchas.md
 └── 6. Dev recipes (how to add things) ......... dev-recipes.md

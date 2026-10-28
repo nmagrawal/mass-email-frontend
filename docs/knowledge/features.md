@@ -66,7 +66,8 @@ VolunteerTextingClient   tabs "Text voters" | "Templates", campaign stats (sent 
 ```
 The app cannot know if the text was actually sent — that is why Send only marks `initiated` and the volunteer must confirm.
 
-## `/paper-distribution` — Newspaper distribution (admin-only)
+## `/paper-distribution` — Newspaper distribution (admin / dispatcher)
+Sections (remembered per browser): **Plan** (below) · **Editions & runs** (`editions-panel.tsx`) · **Reports** (`reports-panel.tsx`).
 `app/paper-distribution/page.tsx` → `components/paper-distribution/paper-distribution-client.tsx`. Desktop: top bar · list | map | planner. Below `lg`: Locations / Map / Route tabs.
 
 ```
@@ -84,7 +85,16 @@ PaperDistributionClient   city select (+ add city via Google), filter, status fi
                           unloading, total, finish time, per-stop ETA); stale warning; unroutable list w/ Exclude;
                           Save as new / Update
 ```
+**Editions & runs:** list of weekly editions → detail with copy totals, duplicate-location warning, "Add a run" (saved route + optional driver), run cards (assign/reassign driver, per-stop quantities + remove stop before start, cancel, rename, "Driver view" link), per-stop results table (dropped / old picked up / reason / who), **Correct** form for recorded stops (reason required, history kept). Auto-refreshes every 30 s while a run is live.
+**Reports:** date range; latest edition run status + locations not planned; copies by edition; drops vs pickups per location with leftover % (≥50% highlighted); skipped/partial list; CSV export.
+**Location details** now shows the last 6 rounds (dropped / old picked up / status).
+
 Route staleness = `routeSignature(plan)` (stop ids + order, start, finish, optimize, departure) differs from the one computed; quantities and stop minutes don't affect it. Max 25 stops (Routes API limit).
+
+## `/driver` — Driver screen (mobile, works offline)
+`app/driver/page.tsx` (Suspense for `?run=`) → `components/driver/driver-client.tsx` + `offline-queue.ts`.
+My runs list → run view: loaded copies + **Start/Resume** → current stop card (address, instructions, planned qty, **Navigate** = Google Maps directions link, call contact) → Delivered / Partial / Skipped, *new papers dropped*, *old papers picked up*, reason chips, notes → **Save & next stop** → **Finish run** (loaded / returned / damaged → unaccounted shown) or **Stop early** (reason).
+Offline: run details cached in localStorage; every change goes into an ordered localStorage queue, sent when online (on `online` event, every 20 s, manual Retry). Status bar shows online/offline + "N waiting to sync"; rejected changes are listed with Retry / Discard. Queue lives on that one phone.
 
 ## `/nearest-voters` — Nearest voters & walking route
 `app/nearest-voters/page.tsx` (~700 lines) + `components/NearestVotersMap.tsx`

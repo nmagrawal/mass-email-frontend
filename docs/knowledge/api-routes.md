@@ -43,7 +43,7 @@ All require a signed-in user (checked in-handler via `currentUser()`).
 | `/api/outreach/history` | POST | `{voterId, channel, templateId, templateVersion, body, subject?, confirmDuplicate?}` → creates `initiated`. 409 `{code:"already_sent", previousSent}` if already sent and `confirmDuplicate` not set. Cancels the same user's earlier unconfirmed attempt (`status_note: "superseded"`) |
 | `/api/outreach/history/[id]` | PATCH | `{status: sent|cancelled|failed}`; only from `initiated` (409 otherwise). Sets `confirmed_by`, and `sent_at` for `sent` |
 
-## Paper distribution (`paper_distribution`, `lib/paper-distribution.ts`) — admin-only
+## Paper distribution (`paper_distribution`, `lib/paper-distribution.ts`) — admin/dispatcher (drivers: my-runs + own runs)
 
 | Route | Method | What it does |
 |---|---|---|
@@ -58,6 +58,16 @@ All require a signed-in user (checked in-handler via `currentUser()`).
 | `/api/paper/route-templates?cityId&includeArchived` | GET | Saved routes |
 | `/api/paper/route-templates` | POST | Create `{cityId, name, stops, start, finish, optimize, defaultStopMinutes, lastSummary?}` or duplicate `{duplicateOf, name?}` |
 | `/api/paper/route-templates/[id]` | PATCH | Rename / edit / `status: archived|active` |
+| `/api/paper/editions?cityId` | GET | Editions (newest first) with run/copy summary — dispatcher |
+| `/api/paper/editions` | POST | `{cityId, name, publishDate, copiesAvailable, notes?}` |
+| `/api/paper/editions/[id]` | GET, PATCH | Detail: runs + totals, all stop records, edition totals (available/allocated/unallocated/loaded/dropped/picked up/returned/damaged/unaccounted), `duplicates` (location in >1 live run). PATCH name/date/copies/status/notes |
+| `/api/paper/runs` | POST | `{editionId, routeTemplateId, name?, driverId?, confirmDuplicates?}` → snapshot + pending stop records; non-active locations `excluded`; 409 `code:"duplicates"` — dispatcher |
+| `/api/paper/runs/[id]` | GET, PATCH | Own run (driver) or any (dispatcher). PATCH `{action}`: dispatcher `assign`, `set_quantities`, `remove_stop`, `cancel`, `rename`, `notes`; driver/dispatcher `load`, `start`, `interrupt`, `finish`. 409 includes the current run |
+| `/api/paper/runs/[id]/stops/[locationId]` | PATCH | Driver: `{status, deliveredQuantity, pickedUpQuantity, reason, notes, clientUpdateId, recordedAt}` (idempotent, ignores older). Dispatcher: `{correction:true, reason, status, deliveredQuantity, pickedUpQuantity, stopReason}` |
+| `/api/paper/my-runs` | GET | Signed-in user's open runs + completed in last 3 days |
+| `/api/paper/drivers` | GET | Clerk users with role driver/dispatcher/admin (cached 60 s) — dispatcher |
+| `/api/paper/locations/[id]/history?limit` | GET | Week-by-week drops/pickups for one location + summary (leftover rate) |
+| `/api/paper/reports?cityId&from&to` | GET | `byEdition`, `byLocation` (dropped, picked up, leftover %), `problems` (skipped/partial), `notPlanned`, `runStatus` of latest edition |
 
 ## Voters (legacy `voter_db`)
 

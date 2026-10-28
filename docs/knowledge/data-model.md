@@ -125,7 +125,7 @@ Indexes (auto-created once per process by `getOutreachDb()`): `voters{residence.
 
 ## `paper_distribution` (main cluster) — newspaper distribution
 
-Separate from voter data. Stage 1–2 of the plan (locations + route planning). Planned later: `editions`, `delivery_runs` (run = snapshot of a route template's stops/order/quantities), driver/dispatcher roles.
+Separate from voter data. Planning (cities, locations, route_templates) → delivering (editions → delivery_runs → stop_deliveries). Not built yet: automatic driver allocation (Route Optimization API), photos at stops.
 
 ### `cities`
 `{ _id: "san_ramon_ca" (slug of name+state), name, state, google{place_id,name,formatted_address,types}, center: GeoJSON Point, location_fetched_at, depot: RoutePoint|null, created_by/at, updated_by/at }` — created from a Google "locality" place. `depot` = default route start.
@@ -149,12 +149,44 @@ Duplicate check before adding: same `place_id`, within 40 m, or same name (case-
 
 **RoutePoint**: `{ type: "depot"|"location"|"address", label, location_id?, place_id?, formatted_address?, location: GeoJSON, fetched_at? }`. The server resolves points itself (`resolveRoutePoint`): directory locations from the DB, Google places re-fetched on save.
 
+### `editions` — one weekly round / issue per city
+`{ city_id, name ("Week of Oct 27"), publish_date (noon local), copies_available, status: planning|distributing|closed, notes, created_by/at, updated_by/at }`. Becomes `distributing` automatically when its first run starts.
+
+### `delivery_runs` — one driver trip within an edition
+```ts
+{
+  edition_id, city_id, route_template_id, name,
+  status: "planned" (no driver) | "assigned" | "in_progress" | "interrupted" | "completed" | "cancelled",
+  driver: { clerk_user_id, name } | null,
+  snapshot: { start, finish, stops: [{ location_id, sequence, label, address, location, instructions, contact,
+              planned_quantity, stop_minutes }], taken_at },   // frozen copy of the saved route
+  loaded_copies, returned_copies (today's papers brought back), damaged_copies,
+  started_at, completed_at, interrupted_reason, notes, created_by/at, updated_by/at
+}
+```
+Flow: planned ⇄ assigned → in_progress ⇄ interrupted → completed; planned/assigned → cancelled. Stop allocations / removals only before start. Every transition is a conditional update on the current status.
+
+### `stop_deliveries` — the weekly record per location (one per location per run)
+```ts
+{
+  run_id, edition_id, city_id, location_id, location_label, publish_date, sequence, planned_quantity,
+  status: "pending" | "delivered" | "partial" | "skipped",
+  delivered_quantity,      // NEW papers dropped
+  picked_up_quantity,      // OLD papers collected from the location (leftovers) — separate from run returned_copies
+  reason, notes, recorded_by, recorded_at (device time), synced_at, client_update_id,
+  corrections: [{ changes: {field: {from,to}}, reason, by, at }]   // original values kept
+}
+```
+Unique `{run_id, location_id}`. Finishing a run marks remaining pending stops `skipped` with `AUTO_SKIP_REASON`. Offline-safe writes: same `client_update_id` → no-op; older `recorded_at` than stored → ignored (except over an auto-skip); drivers can still sync up to 48 h after completion; later changes need a dispatcher correction.
+
+**Copy accounting** (`runTotals`): unaccounted = loaded − dropped − returned − damaged (only once completed). Leftover rate per location = picked up ÷ dropped.
+
 ### `audit_events`
-`{ entity: "city"|"location"|"route_template", entity_id, action, changes?: {field: {from,to}}, by, at }` — location create/update/status changes, route create/update/duplicate/archive, depot changes.
+`{ entity: "city"|"location"|"route_template"|"edition"|"delivery_run"|"stop_delivery", entity_id, action, changes?: {field: {from,to}}, by, at }` — location create/update/status changes, route create/update/duplicate/archive, depot changes.
 
 **Google terms:** Place IDs are stored indefinitely; Places coordinates may be cached ≤30 days. `refreshStaleCoordinates(cityId)` re-fetches anything older than 29 days (locations, city center, depot, saved route start/finish). It runs in the background via `after()` whenever a city's locations are listed.
 
-Indexes (auto-created by `getPaperDb()`): `locations{city_id,status,label}`, `{city_id,google.place_id}`, `location` 2dsphere, `{location_fetched_at}`, `route_templates{city_id,status,name}`, `{stops.location_id}`, `audit_events{entity,entity_id,at:-1}`.
+Indexes (auto-created by `getPaperDb()`): `editions{city_id,publish_date:-1}`, `delivery_runs{edition_id}`, `{driver.clerk_user_id,status}`, `stop_deliveries{run_id,location_id}` unique, `{edition_id,location_id}`, `{location_id,recorded_at:-1}`, `{city_id,publish_date:-1}`, `locations{city_id,status,label}`, `{city_id,google.place_id}`, `location` 2dsphere, `{location_fetched_at}`, `route_templates{city_id,status,name}`, `{stops.location_id}`, `audit_events{entity,entity_id,at:-1}`.
 
 ## `MONGODB_DB` (default `"opgov"`)
 

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   paperCollections,
   recordAudit,
+  auditUser,
   requireUser,
   resolveRoutePoint,
   serializeCity,
@@ -16,7 +17,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const user = await requireUser();
+    const me = await requireUser();
+    const user = me && auditUser(me);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

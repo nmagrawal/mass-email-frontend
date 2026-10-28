@@ -17,6 +17,7 @@ OpGov Outreach App
 │   ├── voter_db       (legacy voters, email templates, sms_chats, messages)
 │   ├── voter_db_v2    (geo-enabled voters, voter_interactions,
 │   │                   message_templates, outreach_history)
+│   ├── paper_distribution (cities, locations, route_templates, audit_events)
 │   ├── opgov / MONGODB_DB (text_templates, invalid_phone writes)
 │   └── opgov-prod     (users, speakers_history — read-only source for mapping)
 ├── 3. API routes .............................. api-routes.md
@@ -25,6 +26,8 @@ OpGov Outreach App
 │   ├── Inbox:   inbound-messages, inbound-messages/[voterId]
 │   ├── Volunteer outreach: outreach/templates(/[id]), outreach/voters,
 │   │            outreach/history(/[id])
+│   ├── Paper distribution: paper/places/*, paper/cities(/[id]), paper/locations(/[id]),
+│   │            paper/route/compute, paper/route-templates(/[id])
 │   ├── Voters:  voters (GET/PATCH), voters/remove-invalid-phone, public-speakers
 │   ├── Maps:    map-voters, nearest-voters, address-voters, voter-interactions,
 │   │            geocode-address, walking-route
@@ -38,7 +41,8 @@ OpGov Outreach App
 │   ├── /explore-voters    Clustered map + shared canvass notes
 │   ├── /voters            OpGov users matched to voters
 │   ├── /public_speakers   Public speakers matched to voters
-│   └── /inbound-messages  Legacy inbound table (broken, see gotchas)
+│   ├── /inbound-messages  Legacy inbound table (broken, see gotchas)
+│   └── /paper-distribution Newspaper drop locations + driving route planner (admin)
 ├── 5. Gotchas, bugs & tech debt ............... gotchas.md
 └── 6. Dev recipes (how to add things) ......... dev-recipes.md
 ```
@@ -55,6 +59,7 @@ OpGov Outreach App
 | Map UI | `components/ExploreVotersMap.tsx`, `components/NearestVotersMap.tsx` |
 | SMS Hub UI | `components/sms-hub/*` |
 | Volunteer outreach | `lib/outreach.ts` (server), `lib/outreach-render.ts` (shared), `components/volunteer-texting/*` |
+| Paper distribution | `lib/paper-distribution.ts` (server), `components/paper-distribution/*` |
 | UI primitives | `components/ui/*` (shadcn, "new-york" style) |
 
 ## Before writing code

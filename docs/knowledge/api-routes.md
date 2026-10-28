@@ -43,6 +43,22 @@ All require a signed-in user (checked in-handler via `currentUser()`).
 | `/api/outreach/history` | POST | `{voterId, channel, templateId, templateVersion, body, subject?, confirmDuplicate?}` → creates `initiated`. 409 `{code:"already_sent", previousSent}` if already sent and `confirmDuplicate` not set. Cancels the same user's earlier unconfirmed attempt (`status_note: "superseded"`) |
 | `/api/outreach/history/[id]` | PATCH | `{status: sent|cancelled|failed}`; only from `initiated` (409 otherwise). Sets `confirmed_by`, and `sent_at` for `sent` |
 
+## Paper distribution (`paper_distribution`, `lib/paper-distribution.ts`) — admin-only
+
+| Route | Method | What it does |
+|---|---|---|
+| `/api/paper/places/autocomplete` | POST | `{input, sessionToken, bias?, citiesOnly?}` → Google Places (New) suggestions (US). Uses `GOOGLE_MAPS_API_KEY` (has Places API New enabled) |
+| `/api/paper/places/details` | POST | `{placeId, sessionToken, cityId?}` → `{place, duplicates}`; ends the Google billing session |
+| `/api/paper/cities` | GET, POST | List (with non-inactive location counts) / create from a locality `placeId` (idempotent by slug) |
+| `/api/paper/cities/[id]` | PATCH | `{depot}` set/clear the default route start |
+| `/api/paper/locations?cityId&status&search` | GET | `status`: current (default: active+paused) / active / paused / inactive / all. Triggers background coordinate refresh |
+| `/api/paper/locations` | POST | `{cityId, place, label, area, defaultQuantity, instructions, contact, availability, status, confirmDuplicate?}`; 409 `code:"duplicate"` for same Place ID |
+| `/api/paper/locations/[id]` | PATCH | Partial edit incl. `status`; returns `usedInRoutes` (active saved routes still containing it) when paused/deactivated |
+| `/api/paper/route/compute` | POST | `{cityId, start, finish:{returnToStart, point}, stops:[locationId] ≤25, optimize, departureTime?}` → Google Routes **DRIVE** (`GOOGLE_ROUTES_API_KEY`). 422 `code:"unroutable"` lists stops that are missing/inactive/other city/no coords. Traffic-aware only for future departures. Returns `orderedLocationIds, path, distanceMeters, driveSeconds, legs (stops+1), trafficAware` |
+| `/api/paper/route-templates?cityId&includeArchived` | GET | Saved routes |
+| `/api/paper/route-templates` | POST | Create `{cityId, name, stops, start, finish, optimize, defaultStopMinutes, lastSummary?}` or duplicate `{duplicateOf, name?}` |
+| `/api/paper/route-templates/[id]` | PATCH | Rename / edit / `status: archived|active` |
+
 ## Voters (legacy `voter_db`)
 
 | Route | Method | What it does |

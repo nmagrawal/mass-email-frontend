@@ -12,7 +12,7 @@ You must sign in through Clerk to reach any page or API route.
 1. Create `app/<slug>/page.tsx` (add `"use client"` if it uses state/effects — every existing page does).
 2. Put substantial UI in `components/<feature>/…` and keep the page thin (see `app/sms-hub/page.tsx`).
 3. Add `{ label, href }` to `tabs` in `components/app-bar.tsx`.
-4. Route is auto-protected by `proxy.ts` and is **admin-only by default**. To open it to volunteers, add the page to `VOLUNTEER_PAGES` and every API it calls to `VOLUNTEER_APIS` in `lib/access.ts`.
+4. Route is auto-protected by `proxy.ts` and is **admin-only by default**. To open it to other roles, add the page and every API it calls to the matching lists in `lib/access.ts` (`VOLUNTEER_*`, `DRIVER_*`, `DISPATCHER_*`).
 
 ## Add an API route
 Follow the newer pattern (e.g. `app/api/voter-interactions/route.ts`):
@@ -64,3 +64,6 @@ curl -X POST http://localhost:3000/api/create-indexes
 
 ## Keep this knowledge tree current
 When you add a route, page, collection, or env var, update the matching file in `docs/knowledge/`, and strike items in `gotchas.md` once fixed.
+
+## Give someone a role
+Clerk Dashboard → Users → user → Public metadata: `{ "role": "dispatcher" }` (or `"driver"`, `"admin"`). Takes up to ~60 s (proxy role cache).

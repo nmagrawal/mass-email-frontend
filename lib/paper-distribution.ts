@@ -1,14 +1,17 @@
 import type { Collection, Db, ObjectId } from "mongodb";
+import { clerkClient, currentUser } from "@clerk/nextjs/server";
 
+import { getRole, type Role } from "@/lib/access";
 import { getDb } from "@/lib/api/mongo";
-import { getSignedInUser, type SignedInUser } from "@/lib/outreach";
 
 /*
  * Newspaper distribution: drop-location directory + route planning.
  * Separate database from the voter data. See docs/knowledge/data-model.md.
  *
- * Stage 1–2 collections: cities, locations, route_templates, audit_events.
- * Planned later: editions, delivery_runs (snapshots of route_templates).
+ * Planning: cities, locations, route_templates.
+ * Delivering: editions (weekly issue/round) → delivery_runs (a driver trip,
+ * snapshot of a route) → stop_deliveries (one per location per run: papers
+ * dropped + old papers picked up). audit_events records changes.
  */
 
 export const PAPER_DB = "paper_distribution";
@@ -112,7 +115,7 @@ export type RouteTemplateDocument = {
 };
 
 export type AuditEventDocument = {
-  entity: "city" | "location" | "route_template";
+  entity: "city" | "location" | "route_template" | "edition" | "delivery_run" | "stop_delivery";
   entity_id: string;
   action: string;
   changes?: Record<string, { from: unknown; to: unknown }>;
@@ -134,6 +137,13 @@ async function ensureIndexes(db: Db) {
     db.collection("route_templates").createIndex({ city_id: 1, status: 1, name: 1 }),
     db.collection("route_templates").createIndex({ "stops.location_id": 1 }),
     db.collection("audit_events").createIndex({ entity: 1, entity_id: 1, at: -1 }),
+    db.collection("editions").createIndex({ city_id: 1, publish_date: -1 }),
+    db.collection("delivery_runs").createIndex({ edition_id: 1 }),
+    db.collection("delivery_runs").createIndex({ "driver.clerk_user_id": 1, status: 1 }),
+    db.collection("stop_deliveries").createIndex({ run_id: 1, location_id: 1 }, { unique: true }),
+    db.collection("stop_deliveries").createIndex({ edition_id: 1, location_id: 1 }),
+    db.collection("stop_deliveries").createIndex({ location_id: 1, recorded_at: -1 }),
+    db.collection("stop_deliveries").createIndex({ city_id: 1, publish_date: -1 }),
   ]);
 }
 
@@ -159,12 +169,35 @@ export async function paperCollections() {
     locations: db.collection<LocationDocument>("locations"),
     routeTemplates: db.collection<RouteTemplateDocument>("route_templates"),
     audit: db.collection<AuditEventDocument>("audit_events"),
+    editions: db.collection<EditionDocument>("editions"),
+    runs: db.collection<DeliveryRunDocument>("delivery_runs"),
+    stopDeliveries: db.collection<StopDeliveryDocument>("stop_deliveries"),
   };
 }
 
-export async function requireUser(): Promise<AuditUser | null> {
-  const user: SignedInUser | null = await getSignedInUser();
-  return user ? { clerk_user_id: user.id, name: user.name } : null;
+export type PaperUser = AuditUser & { role: Role };
+
+/* Signed-in user with their role (Clerk publicMetadata.role), or null. */
+export async function requireUser(): Promise<PaperUser | null> {
+  const user = await currentUser();
+  if (!user) return null;
+
+  const name =
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+    user.username ||
+    user.primaryEmailAddress?.emailAddress ||
+    "Unknown user";
+
+  return { clerk_user_id: user.id, name, role: getRole(user.publicMetadata) };
+}
+
+export function canDispatch(user: PaperUser) {
+  return user.role === "admin" || user.role === "dispatcher";
+}
+
+/* The audit fields stored on documents (no role). */
+export function auditUser(user: PaperUser): AuditUser {
+  return { clerk_user_id: user.clerk_user_id, name: user.name };
 }
 
 export async function recordAudit(event: Omit<AuditEventDocument, "at">) {
@@ -262,6 +295,201 @@ export function parseLocationFields(body: any, partial: boolean) {
   }
 
   return out;
+}
+
+
+/* ---------------- Editions, runs, stop deliveries ---------------- */
+
+export const EDITION_STATUSES = ["planning", "distributing", "closed"] as const;
+export type EditionStatus = (typeof EDITION_STATUSES)[number];
+
+/* One publication issue / weekly round in one city. */
+export type EditionDocument = {
+  _id?: ObjectId;
+  city_id: string;
+  name: string; // e.g. "Week of Oct 27"
+  publish_date: Date; // date of the round
+  copies_available: number;
+  status: EditionStatus;
+  notes: string;
+  created_by: AuditUser;
+  created_at: Date;
+  updated_by: AuditUser;
+  updated_at: Date;
+};
+
+export const RUN_STATUSES = [
+  "planned", // no driver yet
+  "assigned",
+  "in_progress",
+  "interrupted", // driver stopped early; can resume
+  "completed",
+  "cancelled",
+] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/* Frozen copy of a stop at the moment the run was created. */
+export type RunStopSnapshot = {
+  location_id: string;
+  sequence: number; // 1-based
+  label: string;
+  address: string;
+  location: GeoPoint;
+  instructions: string;
+  contact: { name: string; phone: string };
+  planned_quantity: number;
+  stop_minutes: number;
+};
+
+export type DeliveryRunDocument = {
+  _id?: ObjectId;
+  edition_id: string;
+  city_id: string;
+  route_template_id: string | null;
+  name: string;
+  status: RunStatus;
+  driver: AuditUser | null;
+  snapshot: {
+    start: RoutePoint;
+    finish: RoutePoint;
+    stops: RunStopSnapshot[];
+    taken_at: Date;
+  };
+  // Copy accounting (run level). Old papers picked up are per stop.
+  loaded_copies: number | null;
+  returned_copies: number | null; // today's papers brought back
+  damaged_copies: number | null;
+  started_at: Date | null;
+  completed_at: Date | null;
+  interrupted_reason: string;
+  notes: string;
+  created_by: AuditUser;
+  created_at: Date;
+  updated_by: AuditUser;
+  updated_at: Date;
+};
+
+/* Reason set on stops still pending when a run is finished. */
+export const AUTO_SKIP_REASON = "Not visited (run finished)";
+
+export const STOP_DELIVERY_STATUSES = ["pending", "delivered", "partial", "skipped"] as const;
+export type StopDeliveryStatus = (typeof STOP_DELIVERY_STATUSES)[number];
+
+/*
+ * One per location per run. The weekly record of what happened at a drop
+ * location: new papers dropped and old papers picked up.
+ */
+export type StopDeliveryDocument = {
+  _id?: ObjectId;
+  run_id: string;
+  edition_id: string;
+  city_id: string;
+  location_id: string;
+  location_label: string; // snapshot, for history/reports
+  publish_date: Date; // copied from the edition for fast history queries
+  sequence: number;
+  planned_quantity: number;
+  status: StopDeliveryStatus;
+  delivered_quantity: number | null; // new papers dropped
+  picked_up_quantity: number | null; // old papers collected from this location
+  reason: string; // required for partial / skipped
+  notes: string;
+  recorded_by: AuditUser | null;
+  recorded_at: Date | null; // when the driver recorded it (device time)
+  synced_at: Date | null; // when the server received it
+  client_update_id: string | null; // idempotency key from the driver app
+  corrections: {
+    changes: Record<string, { from: unknown; to: unknown }>;
+    reason: string;
+    by: AuditUser;
+    at: Date;
+  }[];
+};
+
+export function serializeEdition(e: EditionDocument) {
+  return {
+    id: String(e._id),
+    cityId: e.city_id,
+    name: e.name,
+    publishDate: e.publish_date.toISOString(),
+    copiesAvailable: e.copies_available,
+    status: e.status,
+    notes: e.notes,
+    updatedBy: e.updated_by?.name ?? null,
+    updatedAt: e.updated_at?.toISOString() ?? null,
+  };
+}
+
+export function serializeRun(r: DeliveryRunDocument) {
+  return {
+    id: String(r._id),
+    editionId: r.edition_id,
+    cityId: r.city_id,
+    routeTemplateId: r.route_template_id,
+    name: r.name,
+    status: r.status,
+    driver: r.driver ? { clerkUserId: r.driver.clerk_user_id, name: r.driver.name } : null,
+    start: serializeRoutePoint(r.snapshot.start),
+    finish: serializeRoutePoint(r.snapshot.finish),
+    stops: r.snapshot.stops.map((s) => ({
+      locationId: s.location_id,
+      sequence: s.sequence,
+      label: s.label,
+      address: s.address,
+      ...fromPoint(s.location),
+      instructions: s.instructions,
+      contact: s.contact,
+      plannedQuantity: s.planned_quantity,
+      stopMinutes: s.stop_minutes,
+    })),
+    snapshotAt: r.snapshot.taken_at.toISOString(),
+    loadedCopies: r.loaded_copies,
+    returnedCopies: r.returned_copies,
+    damagedCopies: r.damaged_copies,
+    startedAt: r.started_at?.toISOString() ?? null,
+    completedAt: r.completed_at?.toISOString() ?? null,
+    interruptedReason: r.interrupted_reason,
+    notes: r.notes,
+    updatedAt: r.updated_at?.toISOString() ?? null,
+  };
+}
+
+export function serializeStopDelivery(d: StopDeliveryDocument) {
+  return {
+    id: String(d._id),
+    runId: d.run_id,
+    editionId: d.edition_id,
+    locationId: d.location_id,
+    locationLabel: d.location_label,
+    publishDate: d.publish_date.toISOString(),
+    sequence: d.sequence,
+    plannedQuantity: d.planned_quantity,
+    status: d.status,
+    deliveredQuantity: d.delivered_quantity,
+    pickedUpQuantity: d.picked_up_quantity,
+    reason: d.reason,
+    notes: d.notes,
+    recordedBy: d.recorded_by?.name ?? null,
+    recordedAt: d.recorded_at?.toISOString() ?? null,
+    syncedAt: d.synced_at?.toISOString() ?? null,
+    clientUpdateId: d.client_update_id,
+    corrections: d.corrections.map((c) => ({
+      changes: c.changes,
+      reason: c.reason,
+      by: c.by.name,
+      at: c.at.toISOString(),
+    })),
+  };
+}
+
+export type SerializedEdition = ReturnType<typeof serializeEdition>;
+export type SerializedRun = ReturnType<typeof serializeRun>;
+export type SerializedStopDelivery = ReturnType<typeof serializeStopDelivery>;
+
+export function cleanCount(value: unknown, max = 100000): number | null | "invalid" {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= max ? n : "invalid";
 }
 
 /* ---------------- Google Places (New), server-side ---------------- */
@@ -626,4 +854,98 @@ export async function parseRouteTemplateFields(
   }
 
   return out;
+}
+
+/* ---------------- Runs: permissions + copy accounting ---------------- */
+
+/* Drivers may only see and act on runs assigned to them. */
+export function canAccessRun(user: PaperUser, run: DeliveryRunDocument) {
+  return canDispatch(user) || run.driver?.clerk_user_id === user.clerk_user_id;
+}
+
+export async function loadRun(id: string) {
+  const { ObjectId } = await import("mongodb");
+  if (!ObjectId.isValid(id)) return null;
+  const { runs } = await paperCollections();
+  return runs.findOne({ _id: new ObjectId(id) });
+}
+
+/*
+ * Copy accounting for one run.
+ *   planned   = sum of stop allocations
+ *   delivered = new papers dropped
+ *   pickedUp  = old papers collected from locations (kept separate from returned)
+ *   unaccounted = loaded − delivered − returned − damaged (once the run is done)
+ */
+export function runTotals(run: DeliveryRunDocument, stops: StopDeliveryDocument[]) {
+  const planned = run.snapshot.stops.reduce((sum, s) => sum + s.planned_quantity, 0);
+  const delivered = stops.reduce((sum, s) => sum + (s.delivered_quantity ?? 0), 0);
+  const pickedUp = stops.reduce((sum, s) => sum + (s.picked_up_quantity ?? 0), 0);
+  const counts = { pendingStops: 0, deliveredStops: 0, partialStops: 0, skippedStops: 0 };
+  for (const s of stops) counts[`${s.status}Stops` as keyof typeof counts]++;
+
+  const done = run.status === "completed";
+  const unaccounted =
+    done && run.loaded_copies != null
+      ? run.loaded_copies - delivered - (run.returned_copies ?? 0) - (run.damaged_copies ?? 0)
+      : null;
+
+  return {
+    stops: run.snapshot.stops.length,
+    planned,
+    loaded: run.loaded_copies,
+    delivered,
+    pickedUp,
+    returned: run.returned_copies,
+    damaged: run.damaged_copies,
+    unaccounted,
+    ...counts,
+  };
+}
+
+export type RunTotals = ReturnType<typeof runTotals>;
+
+/* ---------------- Drivers (Clerk users) ---------------- */
+
+function displayName(u: { firstName: string | null; lastName: string | null; username: string | null; primaryEmailAddress?: { emailAddress: string } | null }) {
+  return (
+    [u.firstName, u.lastName].filter(Boolean).join(" ").trim() ||
+    u.username ||
+    u.primaryEmailAddress?.emailAddress ||
+    "Unknown user"
+  );
+}
+
+/* Users who can be assigned a run: drivers, dispatchers and admins. */
+export async function listAssignableUsers() {
+  const client = await clerkClient();
+  const out: { clerkUserId: string; name: string; role: Role; email: string }[] = [];
+
+  for (let offset = 0; offset < 2000; offset += 100) {
+    const page = await client.users.getUserList({ limit: 100, offset });
+    for (const u of page.data) {
+      const role = getRole(u.publicMetadata);
+      if (role === "volunteer") continue;
+      out.push({
+        clerkUserId: u.id,
+        name: displayName(u),
+        role,
+        email: u.primaryEmailAddress?.emailAddress ?? "",
+      });
+    }
+    if (page.data.length < 100) break;
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function resolveDriver(clerkUserId: string): Promise<AuditUser | null> {
+  try {
+    const client = await clerkClient();
+    const u = await client.users.getUser(clerkUserId);
+    if (getRole(u.publicMetadata) === "volunteer") return null;
+    return { clerk_user_id: u.id, name: displayName(u) };
+  } catch {
+    return null;
+  }
 }

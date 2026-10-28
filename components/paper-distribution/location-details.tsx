@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { STOP_STATUS_STYLE, formatDate, n, type StopRecord } from "./delivery-types";
 import { STATUS_STYLES, WEEKDAY_LABELS, postJson, readJson, type DropLocation } from "./types";
 
 type Props = {
@@ -20,6 +21,22 @@ type Props = {
 export function LocationDetails({ location, stopNumber, onClose, onToggleStop, onEdit, onUpdated }: Props) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [history, setHistory] = useState<{
+    history: StopRecord[];
+    summary: { rounds: number; dropped: number; pickedUp: number; leftoverRate: number | null };
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    fetch(`/api/paper/locations/${location.id}/history?limit=6`)
+      .then((r) => readJson(r))
+      .then((d: any) => !cancelled && setHistory(d))
+      .catch(() => !cancelled && setHistory(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [location.id]);
 
   async function setStatus(status: DropLocation["status"]) {
     if (status === "inactive" && !window.confirm(`Remove “${location.label}” from the active directory? Its history is kept and you can reactivate it later.`)) {
@@ -99,6 +116,39 @@ export function LocationDetails({ location, stopNumber, onClose, onToggleStop, o
         <div className="mt-2 text-[11px] text-muted-foreground">
           Updated by {location.updatedBy}
           {location.updatedAt ? ` · ${new Date(location.updatedAt).toLocaleDateString()}` : ""}
+        </div>
+      )}
+
+      {history && history.history.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between text-xs font-medium text-muted-foreground">
+            <span>Recent rounds</span>
+            {history.summary.leftoverRate != null && (
+              <span>{Math.round(history.summary.leftoverRate * 100)}% picked up as leftovers</span>
+            )}
+          </div>
+          <table className="w-full text-xs">
+            <thead className="text-left text-muted-foreground">
+              <tr>
+                <th className="font-normal">Date</th>
+                <th className="text-right font-normal">Dropped</th>
+                <th className="text-right font-normal">Old picked up</th>
+                <th className="pl-2 font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.history.map((h) => (
+                <tr key={h.id} title={h.reason || undefined}>
+                  <td>{formatDate(h.publishDate)}</td>
+                  <td className="text-right tabular-nums">{n(h.deliveredQuantity)}</td>
+                  <td className="text-right tabular-nums">{n(h.pickedUpQuantity)}</td>
+                  <td className="pl-2">
+                    <span className={cn("rounded-full px-1.5", STOP_STATUS_STYLE[h.status])}>{h.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

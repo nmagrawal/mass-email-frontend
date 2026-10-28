@@ -15,10 +15,12 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { DistributionMap } from "./distribution-map";
+import { EditionsPanel } from "./editions-panel";
 import { LocationDetails } from "./location-details";
 import { LocationDialog } from "./location-dialog";
 import { LocationList } from "./location-list";
 import { PlaceSearch } from "./place-search";
+import { ReportsPanel } from "./reports-panel";
 import { MAX_ROUTE_STOPS, RoutePlanner, routeSignature, type Plan } from "./route-planner";
 import {
   postJson,
@@ -33,6 +35,8 @@ import {
 const CITY_STORAGE_KEY = "paperDistribution.cityId";
 
 type MobileTab = "list" | "map" | "route";
+type Section = "plan" | "editions" | "reports";
+const SECTION_STORAGE_KEY = "paperDistribution.section";
 
 function emptyPlan(city: City | null): Plan {
   return {
@@ -82,6 +86,21 @@ export function PaperDistributionClient() {
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
 
   const [mobileTab, setMobileTab] = useState<MobileTab>("map");
+  const [section, setSectionState] = useState<Section>("plan");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
+      if (saved === "editions" || saved === "reports") setSectionState(saved);
+    } catch {}
+  }, []);
+
+  function setSection(next: Section) {
+    setSectionState(next);
+    try {
+      localStorage.setItem(SECTION_STORAGE_KEY, next);
+    } catch {}
+  }
 
   const city = cities.find((c) => c.id === cityId) || null;
   const setPlan = useCallback((update: (p: Plan) => Plan) => setPlanState(update), []);
@@ -323,6 +342,24 @@ export function PaperDistributionClient() {
           <Plus className="h-4 w-4" /> City
         </Button>
 
+        <div className="flex rounded-md bg-muted p-0.5">
+          {(["plan", "editions", "reports"] as Section[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSection(s)}
+              className={cn(
+                "rounded px-3 py-1 text-sm font-medium",
+                section === s ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {s === "plan" ? "Plan" : s === "editions" ? "Editions & runs" : "Reports"}
+            </button>
+          ))}
+        </div>
+
+        {section === "plan" && (
+        <>
         <div className="relative min-w-[160px] flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -364,6 +401,8 @@ export function PaperDistributionClient() {
             </button>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       {notice && (
@@ -375,7 +414,10 @@ export function PaperDistributionClient() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      {section === "editions" && <EditionsPanel city={city} savedRoutes={savedRoutes} />}
+      {section === "reports" && <ReportsPanel city={city} />}
+
+      <div className={cn("min-h-0 flex-1", section === "plan" ? "flex" : "hidden")}>
         <aside className={cn("min-h-0 w-full border-r lg:block lg:w-80 lg:shrink-0", mobileTab === "list" ? "block" : "hidden")}>
           <LocationList
             locations={filtered}

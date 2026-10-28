@@ -45,7 +45,14 @@ Endpoints the app relies on:
 ## Auth
 
 - `proxy.ts` = Next 16's renamed middleware. `clerkMiddleware` protects everything except `/sign-in(.*)`, `/sign-up(.*)`, `/__clerk/*`. Matcher includes `/(api|trpc)(.*)`, so **API routes are protected too**.
-- **Roles** (`lib/access.ts`, enforced in `proxy.ts`): Clerk user with `publicMetadata.role === "admin"` can open everything. Every other signed-in user can only open `/volunteer-texting`, `/nearest-voters`, `/explore-voters` and the APIs those pages call (`VOLUNTEER_APIS`). Other pages → redirect to `/volunteer-texting`; other APIs → `403 {"error":"Forbidden"}`.
+- **Roles** (`lib/access.ts`, enforced in `proxy.ts`), from Clerk `publicMetadata.role`:
+  | Role | Can open |
+  |---|---|
+  | `admin` | everything |
+  | `dispatcher` | volunteer pages + `/paper-distribution`, `/driver`, all `/api/paper/*` |
+  | `driver` | volunteer pages + `/driver`, `/api/paper/my-runs`, `/api/paper/runs/*` (handlers further limit drivers to **their own** runs) |
+  | anything else | `/volunteer-texting`, `/nearest-voters`, `/explore-voters` + their APIs |
+  Blocked pages redirect to `homeFor(role)` (`/driver` for drivers, else `/volunteer-texting`); blocked APIs → 403. Paper APIs re-check with `requireUser()` → `{clerk_user_id, name, role}` and `canDispatch()` / `canAccessRun()`; store `auditUser(me)` (no role) on documents.
   - Role source: `sessionClaims.metadata` if the Clerk session token is customized with `{"metadata": "{{user.public_metadata}}"}` (Dashboard → Sessions → Customize session token); otherwise `clerkClient().users.getUser()` cached 60s per user in the proxy. Role changes take up to ~60s to apply.
   - `components/app-bar.tsx` hides tabs using the same `canAccess()` — UI only, not security.
   - **When a volunteer page starts calling a new API, add it to `VOLUNTEER_APIS`**, or volunteers get 403.

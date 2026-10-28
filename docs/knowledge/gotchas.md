@@ -42,3 +42,7 @@ Found while mapping the codebase at `d1ac283`. Ordered roughly by impact.
 - `lib/api/client.ts` is mostly unused (only types are relevant); `styles/globals.css` duplicates `app/globals.css`.
 - `app/api/voters/route.ts` declares `PATCH` above its imports and `dbName` constant (works due to module evaluation order, but confusing).
 - Both npm and pnpm lockfiles are committed.
+- Driver offline queue is localStorage on one device: clearing site data or switching phones before it syncs loses those updates (the status bar shows "N waiting to sync").
+- Driver stop updates are accepted until 48 h after a run is completed (late offline sync); after that only a dispatcher **correction** can change them.
+- `/api/paper/drivers` lists Clerk users page by page (100 per call, up to 2000) and caches 60 s per server instance — a newly promoted driver can take a minute to appear.
+- Run start/finish while offline are queued too; the dispatcher only sees them after the phone syncs.

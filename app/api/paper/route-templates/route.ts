@@ -6,6 +6,7 @@ import {
   paperCollections,
   parseRouteTemplateFields,
   recordAudit,
+  auditUser,
   requireUser,
   serializeRouteTemplate,
 } from "@/lib/paper-distribution";
@@ -48,7 +49,8 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireUser();
+    const me = await requireUser();
+    const user = me && auditUser(me);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -5,6 +5,7 @@ import {
   fetchPlaceDetails,
   paperCollections,
   recordAudit,
+  auditUser,
   requireUser,
   serializeCity,
   slugify,
@@ -45,7 +46,8 @@ export async function GET() {
 // POST /api/paper/cities { placeId, sessionToken } — a Google "locality" place
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireUser();
+    const me = await requireUser();
+    const user = me && auditUser(me);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

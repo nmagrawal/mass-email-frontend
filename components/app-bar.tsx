@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { canAccess, isAdminMetadata } from "@/lib/access";
+import { canAccess, getRole } from "@/lib/access";
 
 const tabs = [
   { label: "Emailing", href: "/" },
@@ -24,6 +24,7 @@ const tabs = [
   { label: "Public Speakers", href: "/public_speakers" },
   { label: "Inbound Messages", href: "/inbound-messages" },
   { label: "Paper Distribution", href: "/paper-distribution" },
+  { label: "Driver", href: "/driver" },
 ];
 
 export function AppBar() {
@@ -31,9 +32,9 @@ export function AppBar() {
   const { isLoaded, user } = useUser();
 
   // proxy.ts enforces access; this only hides tabs the user can't open.
-  const isAdmin = isAdminMetadata(user?.publicMetadata);
+  const role = getRole(user?.publicMetadata);
   const visibleTabs =
-    isLoaded && user ? tabs.filter((tab) => canAccess(tab.href, isAdmin)) : [];
+    isLoaded && user ? tabs.filter((tab) => canAccess(tab.href, role)) : [];
 
   const activeTab =
     visibleTabs.find((tab) => pathname === tab.href) ||

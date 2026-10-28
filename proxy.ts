@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 import {
   PUBLIC_PATHS,
-  VOLUNTEER_HOME,
   canAccess,
-  isAdminMetadata,
+  getRole,
+  homeFor,
   matchesPath,
+  type Role,
 } from "@/lib/access";
 
 /*
@@ -16,35 +17,35 @@ import {
  * and their API calls don't each hit the Clerk API.
  */
 const ROLE_CACHE_TTL_MS = 60_000;
-const roleCache = new Map<string, { isAdmin: boolean; at: number }>();
+const roleCache = new Map<string, { role: Role; at: number }>();
 
-async function isAdminUser(
+async function getUserRole(
   userId: string,
   sessionClaims: Record<string, unknown> | null | undefined,
-) {
+): Promise<Role> {
   const claimMetadata = sessionClaims?.metadata;
 
   if (claimMetadata && typeof claimMetadata === "object") {
-    return isAdminMetadata(claimMetadata);
+    return getRole(claimMetadata);
   }
 
   const cached = roleCache.get(userId);
 
   if (cached && Date.now() - cached.at < ROLE_CACHE_TTL_MS) {
-    return cached.isAdmin;
+    return cached.role;
   }
 
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
-  const isAdmin = isAdminMetadata(user.publicMetadata);
+  const role = getRole(user.publicMetadata);
 
-  roleCache.set(userId, { isAdmin, at: Date.now() });
+  roleCache.set(userId, { role, at: Date.now() });
 
   if (roleCache.size > 1000) {
     roleCache.delete(roleCache.keys().next().value!);
   }
 
-  return isAdmin;
+  return role;
 }
 
 export default clerkMiddleware(async (auth, req) => {
@@ -62,9 +63,9 @@ export default clerkMiddleware(async (auth, req) => {
     return;
   }
 
-  const isAdmin = await isAdminUser(userId, sessionClaims);
+  const role = await getUserRole(userId, sessionClaims);
 
-  if (canAccess(pathname, isAdmin)) {
+  if (canAccess(pathname, role)) {
     return;
   }
 
@@ -72,7 +73,7 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.redirect(new URL(VOLUNTEER_HOME, req.url));
+  return NextResponse.redirect(new URL(homeFor(role), req.url));
 });
 
 export const config = {

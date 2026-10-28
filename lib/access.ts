@@ -2,13 +2,21 @@
  * Role-based access, shared by proxy.ts (enforcement) and the AppBar (which
  * tabs to show). No server-only imports here.
  *
- * Admins: Clerk user with publicMetadata.role === "admin" → every page/API.
- * Everyone else (signed in): the volunteer pages below + the APIs they call.
+ * Role = Clerk publicMetadata.role:
+ *   "admin"      → every page/API
+ *   "dispatcher" → volunteer pages + paper distribution (planning, editions,
+ *                  runs, reports) + driver screen
+ *   "driver"     → volunteer pages + driver screen (own runs only — enforced
+ *                  again inside the run APIs)
+ *   anything else (signed in) → volunteer pages
  */
 
 export const ADMIN_ROLE = "admin";
 
+export type Role = "admin" | "dispatcher" | "driver" | "volunteer";
+
 export const VOLUNTEER_HOME = "/volunteer-texting";
+export const DRIVER_HOME = "/driver";
 
 export const VOLUNTEER_PAGES = [
   "/volunteer-texting",
@@ -30,6 +38,14 @@ export const VOLUNTEER_APIS = [
   "/api/voter-interactions",
 ];
 
+/* Driver screen + the APIs it calls. */
+export const DRIVER_PAGES = ["/driver"];
+export const DRIVER_APIS = ["/api/paper/my-runs", "/api/paper/runs"];
+
+/* Dispatcher: the whole paper distribution area. */
+export const DISPATCHER_PAGES = ["/paper-distribution", ...DRIVER_PAGES];
+export const DISPATCHER_APIS = ["/api/paper"];
+
 /* Reachable without signing in. */
 export const PUBLIC_PATHS = ["/sign-in", "/sign-up", "/__clerk"];
 
@@ -40,18 +56,32 @@ export function matchesPath(pathname: string, prefixes: string[]) {
   );
 }
 
-export function isAdminMetadata(metadata: unknown) {
-  return (
-    typeof metadata === "object" &&
-    metadata !== null &&
-    (metadata as { role?: unknown }).role === ADMIN_ROLE
-  );
+export function getRole(metadata: unknown): Role {
+  const role =
+    typeof metadata === "object" && metadata !== null
+      ? (metadata as { role?: unknown }).role
+      : undefined;
+  return role === "admin" || role === "dispatcher" || role === "driver" ? role : "volunteer";
 }
 
-export function canAccess(pathname: string, isAdmin: boolean) {
-  if (isAdmin || matchesPath(pathname, PUBLIC_PATHS)) {
+export function isAdminMetadata(metadata: unknown) {
+  return getRole(metadata) === "admin";
+}
+
+const ALLOWED: Record<Exclude<Role, "admin">, string[]> = {
+  volunteer: [...VOLUNTEER_PAGES, ...VOLUNTEER_APIS],
+  driver: [...VOLUNTEER_PAGES, ...VOLUNTEER_APIS, ...DRIVER_PAGES, ...DRIVER_APIS],
+  dispatcher: [...VOLUNTEER_PAGES, ...VOLUNTEER_APIS, ...DISPATCHER_PAGES, ...DISPATCHER_APIS],
+};
+
+export function canAccess(pathname: string, role: Role) {
+  if (role === "admin" || matchesPath(pathname, PUBLIC_PATHS)) {
     return true;
   }
+  return matchesPath(pathname, ALLOWED[role]);
+}
 
-  return matchesPath(pathname, [...VOLUNTEER_PAGES, ...VOLUNTEER_APIS]);
+/* Where to send someone who opened a page they can't use. */
+export function homeFor(role: Role) {
+  return role === "driver" ? DRIVER_HOME : VOLUNTEER_HOME;
 }
